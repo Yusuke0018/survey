@@ -4,21 +4,21 @@ import fs from "fs";
 import path from "path";
 
 const DEFAULT_QUESTIONS = [
-  { num: 1, area: "safety", areaLabel: "心理的安全性", staffText: "業務上の疑問や気づきを、気軽に口に出せる雰囲気がある", directorText: "スタッフが業務上の疑問や気づきを、気軽に口に出せる雰囲気を作れていると思う" },
-  { num: 2, area: "safety", areaLabel: "心理的安全性", staffText: "ミスや失敗を報告したとき、責められるのではなく一緒に対策を考えてもらえる", directorText: "スタッフがミスや失敗を報告したとき、責めるのではなく一緒に対策を考える対応ができていると思う" },
-  { num: 3, area: "safety", areaLabel: "心理的安全性", staffText: "「こうした方がいいのでは」という改善提案をしやすい環境だと感じる", directorText: "スタッフが「こうした方がいいのでは」と改善提案をしやすい環境を作れていると思う" },
-  { num: 4, area: "safety", areaLabel: "心理的安全性", staffText: "職場で、自分の考えや判断が尊重されていると感じる", directorText: "スタッフの考えや判断を尊重できていると思う" },
-  { num: 5, area: "director", areaLabel: "院長との関係性", staffText: "業務の指示や方針について、理由や背景の説明が十分にある", directorText: "業務の指示や方針を伝えるとき、理由や背景を十分に説明できていると思う" },
-  { num: 6, area: "director", areaLabel: "院長との関係性", staffText: "自分の業務の進め方について、ある程度の裁量が認められている", directorText: "スタッフの業務の進め方について、ある程度の裁量を認められていると思う" },
-  { num: 7, area: "director", areaLabel: "院長との関係性", staffText: "困ったことや悩みがあるとき、院長に相談しやすいと感じる", directorText: "スタッフが困ったことや悩みがあるとき、自分に相談しやすい状態を作れていると思う" },
-  { num: 8, area: "director", areaLabel: "院長との関係性", staffText: "院長は、スタッフ一人ひとりの強みや事情を理解しようとしてくれている", directorText: "スタッフ一人ひとりの強みや事情を理解しようと努められていると思う" },
-  { num: 9, area: "teamwork", areaLabel: "チームワーク", staffText: "職種の違いに関わらず、お互いの仕事に敬意を持って接している", directorText: "職種の違いに関わらず、お互いの仕事に敬意を持って接する文化が自分のチームにあると思う" },
-  { num: 10, area: "teamwork", areaLabel: "チームワーク", staffText: "チーム内で情報共有が十分に行われていると感じる", directorText: "チーム内の情報共有は十分にできていると思う" },
-  { num: 11, area: "teamwork", areaLabel: "チームワーク", staffText: "忙しいときや困ったとき、同僚同士で自然に助け合える関係がある", directorText: "忙しいときや困ったとき、スタッフ同士で自然に助け合える関係が築けていると思う" },
-  { num: 12, area: "growth", areaLabel: "働きがい・成長", staffText: "今の仕事にやりがいを感じている", directorText: "スタッフが今の仕事にやりがいを感じられる環境を作れていると思う" },
-  { num: 13, area: "growth", areaLabel: "働きがい・成長", staffText: "この職場で、自分が成長できていると感じる", directorText: "スタッフがこの職場で成長できていると感じられる環境を作れていると思う" },
-  { num: 14, area: "trust", areaLabel: "組織への信頼", staffText: "このクリニック（グループ全体）の理念や方向性に共感できる", directorText: "クリニックグループ全体の理念や方向性を、スタッフに十分に伝えられていると思う" },
-  { num: 15, area: "trust", areaLabel: "組織への信頼", staffText: "総合的に見て、今の職場で働き続けたいと思う", directorText: "総合的に見て、スタッフがこの職場で働き続けたいと思える環境を作れていると思う" },
+  { num: 1, area: "safety", areaLabel: "心理的安全性", staffText: "業務上の疑問や気づきを、気軽に口に出せる雰囲気がある", directorText: "スタッフが業務上の疑問や気づきを、気軽に口に出せる雰囲気を作れていると思う", questionKey: "clinic.psychological_safety.speak_up", compareKey: "clinic.psychological_safety.speak_up" },
+  { num: 2, area: "safety", areaLabel: "心理的安全性", staffText: "ミスや失敗を報告したとき、責められるのではなく一緒に対策を考えてもらえる", directorText: "スタッフがミスや失敗を報告したとき、責めるのではなく一緒に対策を考える対応ができていると思う", questionKey: "clinic.psychological_safety.report_mistakes", compareKey: "clinic.psychological_safety.report_mistakes" },
+  { num: 3, area: "safety", areaLabel: "心理的安全性", staffText: "「こうした方がいいのでは」という改善提案をしやすい環境だと感じる", directorText: "スタッフが「こうした方がいいのでは」と改善提案をしやすい環境を作れていると思う", questionKey: "clinic.psychological_safety.suggest_improvements", compareKey: "clinic.psychological_safety.suggest_improvements" },
+  { num: 4, area: "safety", areaLabel: "心理的安全性", staffText: "職場で、自分の考えや判断が尊重されていると感じる", directorText: "スタッフの考えや判断を尊重できていると思う", questionKey: "clinic.psychological_safety.respect_judgment", compareKey: "clinic.psychological_safety.respect_judgment" },
+  { num: 5, area: "director", areaLabel: "院長との関係性", staffText: "業務の指示や方針について、理由や背景の説明が十分にある", directorText: "業務の指示や方針を伝えるとき、理由や背景を十分に説明できていると思う", questionKey: "clinic.director_relation.explain_rationale", compareKey: "clinic.director_relation.explain_rationale" },
+  { num: 6, area: "director", areaLabel: "院長との関係性", staffText: "自分の業務の進め方について、ある程度の裁量が認められている", directorText: "スタッフの業務の進め方について、ある程度の裁量を認められていると思う", questionKey: "clinic.director_relation.allow_discretion", compareKey: "clinic.director_relation.allow_discretion" },
+  { num: 7, area: "director", areaLabel: "院長との関係性", staffText: "困ったことや悩みがあるとき、院長に相談しやすいと感じる", directorText: "スタッフが困ったことや悩みがあるとき、自分に相談しやすい状態を作れていると思う", questionKey: "clinic.director_relation.consult_easy", compareKey: "clinic.director_relation.consult_easy" },
+  { num: 8, area: "director", areaLabel: "院長との関係性", staffText: "院長は、スタッフ一人ひとりの強みや事情を理解しようとしてくれている", directorText: "スタッフ一人ひとりの強みや事情を理解しようと努められていると思う", questionKey: "clinic.director_relation.understand_strengths", compareKey: "clinic.director_relation.understand_strengths" },
+  { num: 9, area: "teamwork", areaLabel: "チームワーク", staffText: "職種の違いに関わらず、お互いの仕事に敬意を持って接している", directorText: "職種の違いに関わらず、お互いの仕事に敬意を持って接する文化が自分のチームにあると思う", questionKey: "clinic.teamwork.mutual_respect", compareKey: "clinic.teamwork.mutual_respect" },
+  { num: 10, area: "teamwork", areaLabel: "チームワーク", staffText: "チーム内で情報共有が十分に行われていると感じる", directorText: "チーム内の情報共有は十分にできていると思う", questionKey: "clinic.teamwork.share_information", compareKey: "clinic.teamwork.share_information" },
+  { num: 11, area: "teamwork", areaLabel: "チームワーク", staffText: "忙しいときや困ったとき、同僚同士で自然に助け合える関係がある", directorText: "忙しいときや困ったとき、スタッフ同士で自然に助け合える関係が築けていると思う", questionKey: "clinic.teamwork.help_each_other", compareKey: "clinic.teamwork.help_each_other" },
+  { num: 12, area: "growth", areaLabel: "働きがい・成長", staffText: "今の仕事にやりがいを感じている", directorText: "スタッフが今の仕事にやりがいを感じられる環境を作れていると思う", questionKey: "clinic.engagement.meaningful_work", compareKey: "clinic.engagement.meaningful_work" },
+  { num: 13, area: "growth", areaLabel: "働きがい・成長", staffText: "この職場で、自分が成長できていると感じる", directorText: "スタッフがこの職場で成長できていると感じられる環境を作れていると思う", questionKey: "clinic.engagement.growth", compareKey: "clinic.engagement.growth" },
+  { num: 14, area: "trust", areaLabel: "組織への信頼", staffText: "このクリニック（グループ全体）の理念や方向性に共感できる", directorText: "クリニックグループ全体の理念や方向性を、スタッフに十分に伝えられていると思う", questionKey: "clinic.organization.shared_vision", compareKey: "clinic.organization.shared_vision" },
+  { num: 15, area: "trust", areaLabel: "組織への信頼", staffText: "総合的に見て、今の職場で働き続けたいと思う", directorText: "総合的に見て、スタッフがこの職場で働き続けたいと思える環境を作れていると思う", questionKey: "clinic.organization.retention_intent", compareKey: "clinic.organization.retention_intent" },
 ];
 
 function printHelp() {
@@ -245,6 +245,8 @@ async function upsertClinicQuestions(db, surveyId) {
       core_id: null,
       scale_type: "agreement",
       skip_options: null,
+      question_key: question.questionKey,
+      compare_key: question.compareKey,
     }))
   );
 }

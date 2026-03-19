@@ -9,6 +9,65 @@ const IS_LOCAL_FILE = DB_URL.startsWith("file:");
 let client: Client | null = null;
 let migrationPromise: Promise<void> | null = null;
 
+export type SurveyType = "clinic" | "jigyotai";
+
+export interface QuestionTemplate {
+  id: number;
+  survey_id: number;
+  num: number;
+  staff_text: string;
+  director_text: string;
+  area: string;
+  area_label: string;
+  respondent_type: string | null;
+  text: string | null;
+  short_label: string | null;
+  core_id: number | null;
+  scale_type: string;
+  skip_options: string | null;
+  question_key: string | null;
+  compare_key: string | null;
+}
+
+export interface QuestionTemplateInput {
+  num: number;
+  staff_text?: string;
+  director_text?: string;
+  area: string;
+  area_label?: string;
+  respondent_type?: string | null;
+  text?: string | null;
+  short_label?: string | null;
+  core_id?: number | null;
+  scale_type?: string | null;
+  skip_options?: string | null;
+  question_key?: string | null;
+  compare_key?: string | null;
+}
+
+export interface ResponseRow {
+  survey_id: number;
+  timestamp: string | null;
+  clinic: string;
+  respondent_name?: string | null;
+  q1: number | null;
+  q2: number | null;
+  q3: number | null;
+  q4: number | null;
+  q5: number | null;
+  q6: number | null;
+  q7: number | null;
+  q8: number | null;
+  q9: number | null;
+  q10: number | null;
+  q11: number | null;
+  q12: number | null;
+  q13: number | null;
+  q14: number | null;
+  q15: number | null;
+  free_text: string | null;
+}
+
 function ensureLocalDir() {
   if (!IS_LOCAL_FILE) return;
   if (!fs.existsSync(path.dirname(LOCAL_DB_PATH))) {
@@ -39,6 +98,155 @@ async function rawQueryAll<T>(sql: string, args: InArgs = []): Promise<T[]> {
 async function rawQueryOne<T>(sql: string, args: InArgs = []): Promise<T | null> {
   const rows = await rawQueryAll<T>(sql, args);
   return rows[0] ?? null;
+}
+
+const DEFAULT_AREA_LABELS: Record<string, string> = {
+  safety: "心理的安全性",
+  director: "院長との関係性",
+  teamwork: "チームワーク",
+  growth: "働きがい・成長",
+  trust: "組織への信頼",
+};
+
+const DEFAULT_CLINIC_KEYS: Record<number, { questionKey: string; compareKey: string }> = {
+  1: { questionKey: "clinic.psychological_safety.speak_up", compareKey: "clinic.psychological_safety.speak_up" },
+  2: { questionKey: "clinic.psychological_safety.report_mistakes", compareKey: "clinic.psychological_safety.report_mistakes" },
+  3: { questionKey: "clinic.psychological_safety.suggest_improvements", compareKey: "clinic.psychological_safety.suggest_improvements" },
+  4: { questionKey: "clinic.psychological_safety.respect_judgment", compareKey: "clinic.psychological_safety.respect_judgment" },
+  5: { questionKey: "clinic.director_relation.explain_rationale", compareKey: "clinic.director_relation.explain_rationale" },
+  6: { questionKey: "clinic.director_relation.allow_discretion", compareKey: "clinic.director_relation.allow_discretion" },
+  7: { questionKey: "clinic.director_relation.consult_easy", compareKey: "clinic.director_relation.consult_easy" },
+  8: { questionKey: "clinic.director_relation.understand_strengths", compareKey: "clinic.director_relation.understand_strengths" },
+  9: { questionKey: "clinic.teamwork.mutual_respect", compareKey: "clinic.teamwork.mutual_respect" },
+  10: { questionKey: "clinic.teamwork.share_information", compareKey: "clinic.teamwork.share_information" },
+  11: { questionKey: "clinic.teamwork.help_each_other", compareKey: "clinic.teamwork.help_each_other" },
+  12: { questionKey: "clinic.engagement.meaningful_work", compareKey: "clinic.engagement.meaningful_work" },
+  13: { questionKey: "clinic.engagement.growth", compareKey: "clinic.engagement.growth" },
+  14: { questionKey: "clinic.organization.shared_vision", compareKey: "clinic.organization.shared_vision" },
+  15: { questionKey: "clinic.organization.retention_intent", compareKey: "clinic.organization.retention_intent" },
+};
+
+function trimToNull(value: string | null | undefined): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed ? trimmed : null;
+}
+
+function trimToEmpty(value: string | null | undefined): string {
+  return trimToNull(value) ?? "";
+}
+
+function buildDefaultClinicQuestionKey(num: number): string {
+  return DEFAULT_CLINIC_KEYS[num]?.questionKey ?? `clinic.custom.q${num}`;
+}
+
+function buildDefaultClinicCompareKey(num: number, questionKey: string): string {
+  return DEFAULT_CLINIC_KEYS[num]?.compareKey ?? questionKey;
+}
+
+function buildDefaultJigyotaiQuestionKey(respondentType: string, num: number): string {
+  return `jigyotai.${respondentType}.q${num}`;
+}
+
+function buildDefaultJigyotaiCompareKey(
+  respondentType: string,
+  num: number,
+  coreId: number | null
+): string | null {
+  if (respondentType === "staff") {
+    return `jigyotai.core.${num}`;
+  }
+  if ((respondentType === "manager" || respondentType === "corporate") && coreId != null) {
+    return `jigyotai.core.${coreId}`;
+  }
+  return null;
+}
+
+function normalizeClinicQuestion(question: QuestionTemplateInput) {
+  const questionKey = trimToNull(question.question_key) ?? buildDefaultClinicQuestionKey(question.num);
+
+  return {
+    num: question.num,
+    staff_text: trimToEmpty(question.staff_text),
+    director_text: trimToEmpty(question.director_text),
+    area: trimToEmpty(question.area),
+    area_label: trimToNull(question.area_label) ?? DEFAULT_AREA_LABELS[question.area] ?? trimToEmpty(question.area),
+    respondent_type: trimToNull(question.respondent_type),
+    text: trimToNull(question.text),
+    short_label: trimToNull(question.short_label),
+    core_id: question.core_id ?? null,
+    scale_type: trimToNull(question.scale_type) ?? "agreement",
+    skip_options: trimToNull(question.skip_options),
+    question_key: questionKey,
+    compare_key: trimToNull(question.compare_key) ?? buildDefaultClinicCompareKey(question.num, questionKey),
+  };
+}
+
+function normalizeJigyotaiQuestion(
+  respondentType: string,
+  question: {
+    num: number;
+    text: string;
+    area: string;
+    short_label: string;
+    core_id?: number | null;
+    scale_type?: string | null;
+    skip_options?: string | null;
+    question_key?: string | null;
+    compare_key?: string | null;
+  }
+) {
+  const normalizedRespondentType = trimToNull(respondentType) ?? "staff";
+  const questionKey = trimToNull(question.question_key) ?? buildDefaultJigyotaiQuestionKey(normalizedRespondentType, question.num);
+
+  return {
+    num: question.num,
+    area: trimToEmpty(question.area),
+    respondent_type: normalizedRespondentType,
+    text: trimToNull(question.text),
+    short_label: trimToNull(question.short_label),
+    core_id: question.core_id ?? null,
+    scale_type: trimToNull(question.scale_type) ?? "agreement",
+    skip_options: trimToNull(question.skip_options),
+    question_key: questionKey,
+    compare_key:
+      trimToNull(question.compare_key) ??
+      buildDefaultJigyotaiCompareKey(normalizedRespondentType, question.num, question.core_id ?? null),
+  };
+}
+
+async function backfillQuestionTemplateKeys() {
+  const rows = await rawQueryAll<{
+    id: number;
+    num: number;
+    respondent_type: string | null;
+    core_id: number | null;
+    question_key: string | null;
+    compare_key: string | null;
+  }>(
+    `
+      SELECT id, num, respondent_type, core_id, question_key, compare_key
+      FROM question_templates
+      WHERE question_key IS NULL OR question_key = '' OR compare_key IS NULL OR compare_key = ''
+    `
+  );
+
+  for (const row of rows) {
+    const respondentType = trimToNull(row.respondent_type);
+    const questionKey = trimToNull(row.question_key)
+      ?? (respondentType
+        ? buildDefaultJigyotaiQuestionKey(respondentType, row.num)
+        : buildDefaultClinicQuestionKey(row.num));
+    const compareKey = trimToNull(row.compare_key)
+      ?? (respondentType
+        ? buildDefaultJigyotaiCompareKey(respondentType, row.num, row.core_id ?? null)
+        : buildDefaultClinicCompareKey(row.num, questionKey));
+
+    await rawExecute(
+      "UPDATE question_templates SET question_key = ?, compare_key = ? WHERE id = ?",
+      [questionKey, compareKey, row.id]
+    );
+  }
 }
 
 async function safeAddColumn(table: string, column: string, definition: string) {
@@ -96,7 +304,9 @@ async function migrate() {
       short_label TEXT,
       core_id INTEGER,
       scale_type TEXT DEFAULT 'agreement',
-      skip_options TEXT
+      skip_options TEXT,
+      question_key TEXT,
+      compare_key TEXT
     );
   `);
 
@@ -108,6 +318,9 @@ async function migrate() {
   await safeAddColumn("question_templates", "core_id", "INTEGER");
   await safeAddColumn("question_templates", "scale_type", "TEXT DEFAULT 'agreement'");
   await safeAddColumn("question_templates", "skip_options", "TEXT");
+  await safeAddColumn("question_templates", "question_key", "TEXT");
+  await safeAddColumn("question_templates", "compare_key", "TEXT");
+  await backfillQuestionTemplateKeys();
 
   const hasResponsesV2 = await rawQueryOne<{ cnt: number }>(
     "SELECT COUNT(*) as cnt FROM sqlite_master WHERE type = 'table' AND name = 'responses_v2'"
@@ -203,6 +416,8 @@ async function migrate() {
     CREATE INDEX IF NOT EXISTS idx_responses_owner_subject ON responses(owner_subject);
     CREATE INDEX IF NOT EXISTS idx_response_answers_response ON response_answers(response_id);
     CREATE INDEX IF NOT EXISTS idx_question_templates_survey ON question_templates(survey_id);
+    CREATE INDEX IF NOT EXISTS idx_question_templates_question_key ON question_templates(question_key);
+    CREATE INDEX IF NOT EXISTS idx_question_templates_compare_key ON question_templates(compare_key);
   `);
 }
 
@@ -239,47 +454,6 @@ export async function withTransaction<T>(fn: (tx: Awaited<ReturnType<Client["tra
     await tx.rollback();
     throw error;
   }
-}
-
-export type SurveyType = "clinic" | "jigyotai";
-
-export interface QuestionTemplate {
-  id: number;
-  survey_id: number;
-  num: number;
-  staff_text: string;
-  director_text: string;
-  area: string;
-  area_label: string;
-  respondent_type: string | null;
-  text: string | null;
-  short_label: string | null;
-  core_id: number | null;
-  scale_type: string;
-  skip_options: string | null;
-}
-
-export interface ResponseRow {
-  survey_id: number;
-  timestamp: string | null;
-  clinic: string;
-  respondent_name?: string | null;
-  q1: number | null;
-  q2: number | null;
-  q3: number | null;
-  q4: number | null;
-  q5: number | null;
-  q6: number | null;
-  q7: number | null;
-  q8: number | null;
-  q9: number | null;
-  q10: number | null;
-  q11: number | null;
-  q12: number | null;
-  q13: number | null;
-  q14: number | null;
-  q15: number | null;
-  free_text: string | null;
 }
 
 export async function getAllSurveys() {
@@ -364,32 +538,36 @@ export async function getQuestionTemplates(surveyId: number, respondentType?: st
 
 export async function upsertQuestionTemplates(
   surveyId: number,
-  questions: Omit<QuestionTemplate, "id" | "survey_id">[]
+  questions: QuestionTemplateInput[]
 ) {
   await withTransaction(async (tx) => {
     await tx.execute({ sql: "DELETE FROM question_templates WHERE survey_id = ?", args: [surveyId] });
     for (const question of questions) {
+      const normalized = normalizeClinicQuestion(question);
       await tx.execute({
         sql: `
           INSERT INTO question_templates (
             survey_id, num, staff_text, director_text, area, area_label,
-            respondent_type, text, short_label, core_id, scale_type, skip_options
+            respondent_type, text, short_label, core_id, scale_type, skip_options,
+            question_key, compare_key
           )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `,
         args: [
           surveyId,
-          question.num,
-          question.staff_text || "",
-          question.director_text || "",
-          question.area,
-          question.area_label || "",
-          question.respondent_type || null,
-          question.text || null,
-          question.short_label || null,
-          question.core_id || null,
-          question.scale_type || "agreement",
-          question.skip_options || null,
+          normalized.num,
+          normalized.staff_text,
+          normalized.director_text,
+          normalized.area,
+          normalized.area_label,
+          normalized.respondent_type,
+          normalized.text,
+          normalized.short_label,
+          normalized.core_id,
+          normalized.scale_type,
+          normalized.skip_options,
+          normalized.question_key,
+          normalized.compare_key,
         ],
       });
     }
@@ -405,8 +583,10 @@ export async function upsertJigyotaiQuestions(
     area: string;
     short_label: string;
     core_id?: number | null;
-    scale_type?: string;
+    scale_type?: string | null;
     skip_options?: string | null;
+    question_key?: string | null;
+    compare_key?: string | null;
   }>
 ) {
   await withTransaction(async (tx) => {
@@ -416,25 +596,29 @@ export async function upsertJigyotaiQuestions(
     });
 
     for (const question of questions) {
+      const normalized = normalizeJigyotaiQuestion(respondentType, question);
       await tx.execute({
         sql: `
           INSERT INTO question_templates (
             survey_id, num, staff_text, director_text, area, area_label,
-            respondent_type, text, short_label, core_id, scale_type, skip_options
+            respondent_type, text, short_label, core_id, scale_type, skip_options,
+            question_key, compare_key
           )
-          VALUES (?, ?, '', '', ?, ?, ?, ?, ?, ?, ?, ?)
+          VALUES (?, ?, '', '', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `,
         args: [
           surveyId,
-          question.num,
-          question.area,
-          question.area,
-          respondentType,
-          question.text,
-          question.short_label,
-          question.core_id || null,
-          question.scale_type || "agreement",
-          question.skip_options || null,
+          normalized.num,
+          normalized.area,
+          normalized.area,
+          normalized.respondent_type,
+          normalized.text,
+          normalized.short_label,
+          normalized.core_id,
+          normalized.scale_type,
+          normalized.skip_options,
+          normalized.question_key,
+          normalized.compare_key,
         ],
       });
     }

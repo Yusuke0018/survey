@@ -37,14 +37,21 @@ export async function PUT(
   }
 
   const body = await request.json();
+  const questions = Array.isArray(body?.questions) ? body.questions : null;
 
-  if (survey.survey_type === "jigyotai" && body.respondent_type) {
-    // Save questions for a specific respondent type
-    await upsertJigyotaiQuestions(surveyId, body.respondent_type, body.questions);
-    return NextResponse.json({ success: true, count: body.questions.length });
+  if (!questions) {
+    return NextResponse.json({ error: "questions must be an array" }, { status: 400 });
   }
 
-  // Clinic-style save (all questions at once)
-  await upsertQuestionTemplates(surveyId, body.questions);
-  return NextResponse.json({ success: true, count: body.questions.length });
+  if (survey.survey_type === "jigyotai" && body.respondent_type) {
+    if (typeof body.respondent_type !== "string" || !body.respondent_type.trim()) {
+      return NextResponse.json({ error: "respondent_type is required" }, { status: 400 });
+    }
+
+    await upsertJigyotaiQuestions(surveyId, body.respondent_type.trim(), questions);
+    return NextResponse.json({ success: true, count: questions.length });
+  }
+
+  await upsertQuestionTemplates(surveyId, questions);
+  return NextResponse.json({ success: true, count: questions.length });
 }

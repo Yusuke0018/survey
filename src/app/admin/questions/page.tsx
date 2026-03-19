@@ -11,6 +11,8 @@ interface ClinicQuestion {
   director_text: string;
   area: string;
   area_label: string;
+  question_key: string;
+  compare_key: string | null;
 }
 
 interface JigyotaiQuestion {
@@ -21,6 +23,8 @@ interface JigyotaiQuestion {
   core_id: number | null;
   scale_type: "agreement" | "compensation";
   skip_options: string | null;
+  question_key: string;
+  compare_key: string | null;
 }
 
 const DEFAULT_AREAS = [
@@ -30,6 +34,39 @@ const DEFAULT_AREAS = [
   { key: "growth", label: "働きがい・成長" },
   { key: "trust", label: "組織への信頼" },
 ];
+
+const DEFAULT_CLINIC_KEYS = new Map(
+  QUESTIONS.map((question) => [
+    question.num,
+    { question_key: question.questionKey, compare_key: question.compareKey },
+  ])
+);
+
+function getDefaultClinicQuestionKey(num: number): string {
+  return DEFAULT_CLINIC_KEYS.get(num)?.question_key ?? `clinic.custom.q${num}`;
+}
+
+function getDefaultClinicCompareKey(num: number, questionKey: string): string {
+  return DEFAULT_CLINIC_KEYS.get(num)?.compare_key ?? questionKey;
+}
+
+function getDefaultJigyotaiQuestionKey(respondentType: RespondentType, num: number): string {
+  return `jigyotai.${respondentType}.q${num}`;
+}
+
+function getDefaultJigyotaiCompareKey(
+  respondentType: RespondentType,
+  num: number,
+  coreId: number | null
+): string | null {
+  if (respondentType === "staff") {
+    return `jigyotai.core.${num}`;
+  }
+  if ((respondentType === "manager" || respondentType === "corporate") && coreId != null) {
+    return `jigyotai.core.${coreId}`;
+  }
+  return null;
+}
 
 function QuestionsEditor() {
   const searchParams = useSearchParams();
@@ -70,16 +107,20 @@ function QuestionsEditor() {
             director_text: question.director_text,
             area: question.area,
             area_label: question.area_label,
+            question_key: question.question_key || getDefaultClinicQuestionKey(question.num),
+            compare_key: question.compare_key || getDefaultClinicCompareKey(question.num, question.question_key || getDefaultClinicQuestionKey(question.num)),
           })));
         } else {
           setJigyotaiQuestions(questions.map((question: JigyotaiQuestion) => ({
             num: question.num,
-            text: question.text,
+            text: question.text ?? "",
             area: question.area,
-            short_label: question.short_label,
+            short_label: question.short_label ?? "",
             core_id: question.core_id,
             scale_type: question.scale_type,
             skip_options: question.skip_options,
+            question_key: question.question_key || getDefaultJigyotaiQuestionKey(respondentType, question.num),
+            compare_key: question.compare_key || getDefaultJigyotaiCompareKey(respondentType, question.num, question.core_id),
           })));
         }
         setLoading(false);
@@ -94,6 +135,8 @@ function QuestionsEditor() {
         director_text: question.directorText,
         area: question.area,
         area_label: question.areaLabel,
+        question_key: question.questionKey,
+        compare_key: question.compareKey,
       })));
       return;
     }
@@ -106,6 +149,8 @@ function QuestionsEditor() {
       core_id: question.coreId,
       scale_type: question.isCompensation ? "compensation" : "agreement",
       skip_options: question.skip,
+      question_key: getDefaultJigyotaiQuestionKey(respondentType, question.id),
+      compare_key: getDefaultJigyotaiCompareKey(respondentType, question.id, question.coreId),
     })));
   };
 
@@ -120,6 +165,8 @@ function QuestionsEditor() {
           director_text: "",
           area: "safety",
           area_label: "心理的安全性",
+          question_key: getDefaultClinicQuestionKey(nextNum),
+          compare_key: getDefaultClinicCompareKey(nextNum, getDefaultClinicQuestionKey(nextNum)),
         },
       ]);
       return;
@@ -136,6 +183,8 @@ function QuestionsEditor() {
         core_id: null,
         scale_type: "agreement",
         skip_options: null,
+        question_key: getDefaultJigyotaiQuestionKey(respondentType, nextNum),
+        compare_key: getDefaultJigyotaiCompareKey(respondentType, nextNum, null),
       },
     ]);
   };
@@ -219,7 +268,9 @@ function QuestionsEditor() {
         <div>
           <h2 className="text-xl font-bold text-[#111827]">質問テンプレート編集</h2>
           <p className="text-xs text-[#6B7280] mt-1">
-            {surveyType === "clinic" ? "クリニック用の共通15問を編集します" : "事業体用は回答者タイプごとに編集します"}
+            {surveyType === "clinic"
+              ? "質問文と一緒に question_key / compare_key を管理します"
+              : "回答者タイプごとに質問文と question_key / compare_key を管理します"}
           </p>
         </div>
         <div className="flex gap-3">
@@ -291,15 +342,6 @@ function QuestionsEditor() {
                   <span className="text-sm font-bold text-[#10B981] bg-[#ECFDF5] px-3 py-1 rounded-lg">
                     Q{question.num}
                   </span>
-                  <select
-                    value={question.area}
-                    onChange={(e) => updateClinicQuestion(index, "area", e.target.value)}
-                    className="text-xs border border-[#D1D5DB] rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-[#10B981]/30"
-                  >
-                    {DEFAULT_AREAS.map((area) => (
-                      <option key={area.key} value={area.key}>{area.label}</option>
-                    ))}
-                  </select>
                 </div>
                 <button
                   onClick={() => removeClinicQuestion(index)}
@@ -312,6 +354,40 @@ function QuestionsEditor() {
               </div>
 
               <div className="space-y-3">
+                <div className="grid gap-3 md:grid-cols-3">
+                  <div>
+                    <label className="block text-xs text-[#6B7280] mb-1">領域</label>
+                    <select
+                      value={question.area}
+                      onChange={(e) => updateClinicQuestion(index, "area", e.target.value)}
+                      className="w-full text-sm border border-[#D1D5DB] rounded-xl px-4 py-2.5 focus:outline-none focus:ring-2 focus:ring-[#10B981]/30"
+                    >
+                      {DEFAULT_AREAS.map((area) => (
+                        <option key={area.key} value={area.key}>{area.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-[#6B7280] mb-1">question_key</label>
+                    <input
+                      type="text"
+                      value={question.question_key}
+                      onChange={(e) => updateClinicQuestion(index, "question_key", e.target.value)}
+                      className="w-full border border-[#D1D5DB] rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#10B981]/30 focus:border-[#10B981]"
+                      placeholder="例: clinic.teamwork.share_information"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-[#6B7280] mb-1">compare_key</label>
+                    <input
+                      type="text"
+                      value={question.compare_key ?? ""}
+                      onChange={(e) => updateClinicQuestion(index, "compare_key", e.target.value)}
+                      className="w-full border border-[#D1D5DB] rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#10B981]/30 focus:border-[#10B981]"
+                      placeholder="未入力なら question_key を使用"
+                    />
+                  </div>
+                </div>
                 <div>
                   <label className="block text-xs text-[#6B7280] mb-1">スタッフ向け質問文</label>
                   <textarea
@@ -354,7 +430,7 @@ function QuestionsEditor() {
                 </button>
               </div>
 
-              <div className="grid grid-cols-2 gap-3 mb-3">
+              <div className="grid gap-3 mb-3 md:grid-cols-2 xl:grid-cols-4">
                 <div>
                   <label className="block text-xs text-[#6B7280] mb-1">領域</label>
                   <input
@@ -373,6 +449,26 @@ function QuestionsEditor() {
                     onChange={(e) => updateJigyotaiQuestion(index, "short_label", e.target.value)}
                     className="w-full border border-[#D1D5DB] rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#10B981]/30 focus:border-[#10B981]"
                     placeholder="チャート表示用"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-[#6B7280] mb-1">question_key</label>
+                  <input
+                    type="text"
+                    value={question.question_key}
+                    onChange={(e) => updateJigyotaiQuestion(index, "question_key", e.target.value)}
+                    className="w-full border border-[#D1D5DB] rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#10B981]/30 focus:border-[#10B981]"
+                    placeholder="例: jigyotai.staff.q3"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-[#6B7280] mb-1">compare_key</label>
+                  <input
+                    type="text"
+                    value={question.compare_key ?? ""}
+                    onChange={(e) => updateJigyotaiQuestion(index, "compare_key", e.target.value)}
+                    className="w-full border border-[#D1D5DB] rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#10B981]/30 focus:border-[#10B981]"
+                    placeholder="例: jigyotai.core.3"
                   />
                 </div>
               </div>
