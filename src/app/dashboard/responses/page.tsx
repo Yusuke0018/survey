@@ -77,6 +77,8 @@ export default function ResponsesPage() {
   const [typeFilter, setTypeFilter] = useState("");
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [detail, setDetail] = useState<ResponseDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
   const [tab, setTab] = useState<"list" | "freetext">("list");
   const [freeTexts, setFreeTexts] = useState<FreeTextItem[]>([]);
 
@@ -93,9 +95,36 @@ export default function ResponsesPage() {
 
   useEffect(() => {
     if (!surveyId || !selectedKey) return;
+
+    let cancelled = false;
+
     fetch(`/api/surveys/${surveyId}/responses/${encodeURIComponent(selectedKey)}`)
-      .then((r) => r.json())
-      .then(setDetail);
+      .then(async (r) => {
+        const data = await r.json().catch(() => null);
+        if (!r.ok) {
+          throw new Error(typeof data?.error === "string" ? data.error : "回答詳細の取得に失敗しました");
+        }
+        if (!data || !Array.isArray(data.questions)) {
+          throw new Error("回答詳細の形式が不正です");
+        }
+        return data as ResponseDetail;
+      })
+      .then((data) => {
+        if (cancelled) return;
+        setDetail(data);
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        setDetailError(error instanceof Error ? error.message : "回答詳細の取得に失敗しました");
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setDetailLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
   }, [surveyId, selectedKey]);
 
   if (!surveyId) {
@@ -103,7 +132,7 @@ export default function ResponsesPage() {
   }
 
   const typeOptions = isJigyotai ? JIGYOTAI_TYPES : CLINIC_TYPES;
-  const groupedQuestions = detail?.questions.reduce<Record<string, ResponseDetail["questions"]>>((acc, question) => {
+  const groupedQuestions = detail?.questions?.reduce<Record<string, ResponseDetail["questions"]>>((acc, question) => {
     if (!acc[question.areaLabel]) {
       acc[question.areaLabel] = [];
     }
@@ -136,6 +165,7 @@ export default function ResponsesPage() {
           onChange={(e) => {
             setSelectedKey(null);
             setDetail(null);
+            setDetailError(null);
             setTypeFilter(e.target.value);
           }}
           className="border border-[#E5E7EB] rounded-xl px-4 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#10B981]/30"
@@ -150,6 +180,7 @@ export default function ResponsesPage() {
           onChange={(e) => {
             setSelectedKey(null);
             setDetail(null);
+            setDetailError(null);
             setOrgFilter(e.target.value);
           }}
           className="border border-[#E5E7EB] rounded-xl px-4 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#10B981]/30"
@@ -194,7 +225,16 @@ export default function ResponsesPage() {
                     <tr
                       key={response.key}
                       className={`border-b border-[#E2E8F0]/50 cursor-pointer hover:bg-[#EFF6FF]/50 transition-colors ${selectedKey === response.key ? "bg-[#EFF6FF]" : ""}`}
-                      onClick={() => setSelectedKey(response.key === selectedKey ? null : response.key)}
+                      onClick={() => {
+                        const nextKey = response.key === selectedKey ? null : response.key;
+                        setDetail(null);
+                        setDetailError(null);
+                        setDetailLoading(nextKey !== null);
+                        setSelectedKey(nextKey);
+                        if (!nextKey) {
+                          setDetailLoading(false);
+                        }
+                      }}
                     >
                       <td className="px-4 py-2.5 text-[#64748B]">{response.timestamp || "-"}</td>
                       <td className="px-4 py-2.5 text-[#1E293B]">{response.respondentTypeLabel}</td>
@@ -217,57 +257,87 @@ export default function ResponsesPage() {
             </div>
           </div>
 
-          {selectedKey && detail && (
+          {selectedKey && (
             <div className="w-[420px] flex-shrink-0 bg-white rounded-xl border border-[#E2E8F0] shadow-sm animate-slide-in overflow-y-auto max-h-[calc(100vh-200px)]">
               <div className="sticky top-0 bg-white border-b border-[#E2E8F0] px-5 py-4 flex items-center justify-between">
                 <h4 className="text-sm font-semibold text-[#1E293B]">回答詳細</h4>
-                <button onClick={() => setSelectedKey(null)} className="text-[#64748B] hover:text-[#1E293B]">✕</button>
+                <button
+                  onClick={() => {
+                    setSelectedKey(null);
+                    setDetail(null);
+                    setDetailError(null);
+                  }}
+                  className="text-[#64748B] hover:text-[#1E293B]"
+                >
+                  ✕
+                </button>
               </div>
               <div className="p-5">
-                <div className="space-y-1 mb-4 text-xs text-[#64748B]">
-                  <p>回答者: <span className="text-[#1E293B]">{detail.respondentTypeLabel}</span></p>
-                  <p>{detail.orgUnitLabel}: <span className="text-[#1E293B]">{detail.orgUnit}</span></p>
-                  <p>氏名: <span className="text-[#1E293B]">{detail.name}</span></p>
-                  <p>日時: <span className="text-[#1E293B]">{detail.timestamp || "-"}</span></p>
-                  <p>全体平均: <ScoreBadge score={detail.avgScore} size="sm" /></p>
-                </div>
+                {detailLoading && (
+                  <div className="flex items-center justify-center py-10 text-sm text-[#64748B]">
+                    <div className="animate-spin w-5 h-5 border-2 border-[#10B981] border-t-transparent rounded-full" />
+                    <span className="ml-3">回答詳細を読み込み中...</span>
+                  </div>
+                )}
 
-                {Object.entries(groupedQuestions).map(([area, questions]) => (
-                  <div key={area} className="mb-4">
-                    <div className="inline-flex items-center px-2 py-1 rounded-full bg-[#F1F5F9] text-[#334155] text-[11px] font-medium mb-2">
-                      {area}
+                {!detailLoading && detailError && (
+                  <div className="rounded-xl border border-[#FECACA] bg-[#FEF2F2] p-4 text-sm text-[#B91C1C]">
+                    {detailError}
+                  </div>
+                )}
+
+                {!detailLoading && !detailError && detail && (
+                  <>
+                    <div className="space-y-1 mb-4 text-xs text-[#64748B]">
+                      <p>回答者: <span className="text-[#1E293B]">{detail.respondentTypeLabel}</span></p>
+                      <p>{detail.orgUnitLabel}: <span className="text-[#1E293B]">{detail.orgUnit}</span></p>
+                      <p>氏名: <span className="text-[#1E293B]">{detail.name}</span></p>
+                      <p>日時: <span className="text-[#1E293B]">{detail.timestamp || "-"}</span></p>
+                      <p>全体平均: <ScoreBadge score={detail.avgScore} size="sm" /></p>
                     </div>
-                    <div className="space-y-2">
-                      {questions.map((question) => (
-                        <div key={question.id} className="rounded-lg border border-[#E2E8F0] p-3">
-                          <div className="flex items-center gap-2 mb-1 text-xs">
-                            <span className="text-[#64748B]">Q{question.num}</span>
-                            <span className="text-[#1E293B] font-medium">{question.shortLabel}</span>
-                          </div>
-                          <p className="text-[11px] text-[#64748B] mb-2">{question.text}</p>
-                          <div className="flex items-center gap-3 text-xs text-[#475569]">
-                            <span>回答: <strong>{question.value ?? "-"}</strong></span>
-                            <span>同組織平均: <strong>{question.benchmark ?? "-"}</strong></span>
-                            <span>差分: <strong>{question.diff ?? "-"}</strong></span>
-                          </div>
-                          {question.skipReason && (
-                            <div className="mt-2 inline-flex px-2 py-1 rounded-full bg-[#F8FAFC] text-[#64748B] text-[11px]">
-                              {question.skipReason}
-                            </div>
-                          )}
+
+                    {Object.entries(groupedQuestions).map(([area, questions]) => (
+                      <div key={area} className="mb-4">
+                        <div className="inline-flex items-center px-2 py-1 rounded-full bg-[#F1F5F9] text-[#334155] text-[11px] font-medium mb-2">
+                          {area}
                         </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
+                        <div className="space-y-2">
+                          {questions.map((question) => (
+                            <div key={question.id} className="rounded-lg border border-[#E2E8F0] p-3">
+                              <div className="flex items-center gap-2 mb-1 text-xs">
+                                <span className="text-[#64748B]">Q{question.num}</span>
+                                <span className="text-[#1E293B] font-medium">{question.shortLabel}</span>
+                              </div>
+                              <p className="text-[11px] text-[#64748B] mb-2">{question.text}</p>
+                              <div className="flex items-center gap-3 text-xs text-[#475569]">
+                                <span>回答: <strong>{question.value ?? "-"}</strong></span>
+                                <span>同組織平均: <strong>{question.benchmark ?? "-"}</strong></span>
+                                <span>差分: <strong>{question.diff ?? "-"}</strong></span>
+                              </div>
+                              {question.skipReason && (
+                                <div className="mt-2 inline-flex px-2 py-1 rounded-full bg-[#F8FAFC] text-[#64748B] text-[11px]">
+                                  {question.skipReason}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
 
-                {detail.freeText && (
-                  <div className="mt-4 border-t border-[#E2E8F0] pt-4">
-                    <h5 className="text-xs font-medium text-[#64748B] mb-2">自由記入</h5>
-                    <div className="border-l-[3px] border-[#2563EB] bg-[#FAFBFC] rounded-r-lg p-3">
-                      <p className="text-xs text-[#1E293B] whitespace-pre-wrap">&ldquo;{detail.freeText}&rdquo;</p>
-                    </div>
-                  </div>
+                    {detail.freeText && (
+                      <div className="mt-4 border-t border-[#E2E8F0] pt-4">
+                        <h5 className="text-xs font-medium text-[#64748B] mb-2">自由記入</h5>
+                        <div className="border-l-[3px] border-[#2563EB] bg-[#FAFBFC] rounded-r-lg p-3">
+                          <p className="text-xs text-[#1E293B] whitespace-pre-wrap">&ldquo;{detail.freeText}&rdquo;</p>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+                
+                {!detailLoading && !detailError && !detail && (
+                  <div className="py-10 text-center text-sm text-[#64748B]">回答詳細を表示できません</div>
                 )}
               </div>
             </div>
