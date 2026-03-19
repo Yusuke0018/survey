@@ -32,6 +32,7 @@ interface ClinicDetail {
   }>;
   responses: Array<{
     id: string; timestamp: string; name: string; avgScore: number; freeText: string | null;
+    questionScores: Array<{ questionKey: string; num: number; score: number | null }>;
   }>;
   freeTexts: Array<{ text: string; name: string; timestamp: string }>;
   directorResponse: Array<{
@@ -285,26 +286,50 @@ export default function ClinicDetailPage() {
       {/* Individual Responses */}
       <div className="bg-white rounded-xl border border-[#E2E8F0] p-5 shadow-sm mb-8">
         <h3 className="text-[15px] font-medium text-[#1E293B] mb-4">個別回答一覧</h3>
-        <table className="w-full text-xs">
-          <thead>
-            <tr className="border-b border-[#E2E8F0]">
-              <th className="text-left py-2 text-[#64748B]">日時</th>
-              <th className="text-left py-2 text-[#64748B]">氏名</th>
-              <th className="text-left py-2 text-[#64748B]">平均スコア</th>
-              <th className="text-left py-2 text-[#64748B]">自由記入</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.responses.map((r) => (
-              <tr key={r.id} className="border-b border-[#E2E8F0]/50 hover:bg-[#FAFBFC]">
-                <td className="py-2 text-[#64748B]">{r.timestamp || "-"}</td>
-                <td className="py-2 text-[#1E293B]">{r.name}</td>
-                <td className="py-2"><ScoreBadge score={r.avgScore} size="sm" /></td>
-                <td className="py-2">{r.freeText ? "💬" : ""}</td>
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead>
+              <tr className="border-b border-[#E2E8F0]">
+                <th className="text-left py-2 text-[#64748B] sticky left-0 bg-white z-10 min-w-[140px]">日時</th>
+                <th className="text-left py-2 text-[#64748B] min-w-[80px]">氏名</th>
+                <th className="text-center py-2 text-[#64748B] min-w-[56px]">平均</th>
+                {data.questionScores.map((q) => (
+                  <th key={q.id} className="text-center py-2 text-[#64748B] min-w-[44px]" title={q.text}>
+                    <span className="block">Q{q.num}</span>
+                    <span className="block text-[9px] font-normal text-[#94A3B8] truncate max-w-[44px]">{q.shortLabel}</span>
+                  </th>
+                ))}
+                <th className="text-center py-2 text-[#64748B] min-w-[32px]">memo</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {data.responses.map((r) => (
+                <tr key={r.id} className="border-b border-[#E2E8F0]/50 hover:bg-[#FAFBFC]">
+                  <td className="py-2 text-[#64748B] sticky left-0 bg-white z-10">{r.timestamp || "-"}</td>
+                  <td className="py-2 text-[#1E293B]">{r.name}</td>
+                  <td className="py-2 text-center"><ScoreBadge score={r.avgScore} size="sm" /></td>
+                  {r.questionScores.map((qs) => (
+                    <td key={qs.questionKey} className="py-2 text-center">
+                      {qs.score != null ? (
+                        <span className={`font-[family-name:var(--font-inter)] font-semibold ${
+                          qs.score >= 4 ? "text-[#166534]" :
+                          qs.score >= 3 ? "text-[#1E293B]" :
+                          qs.score >= 2 ? "text-[#EA580C]" :
+                          "text-[#DC2626]"
+                        }`}>
+                          {qs.score}
+                        </span>
+                      ) : (
+                        <span className="text-[#D1D5DB]">-</span>
+                      )}
+                    </td>
+                  ))}
+                  <td className="py-2 text-center">{r.freeText ? "💬" : ""}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       {/* Free Text */}

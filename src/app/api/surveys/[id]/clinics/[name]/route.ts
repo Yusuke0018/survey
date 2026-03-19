@@ -74,6 +74,11 @@ export async function GET(
       name: r.respondentName || "匿名",
       avgScore: Math.round(avg * 100) / 100,
       freeText: r.freeText || null,
+      questionScores: questions.map((q) => ({
+        questionKey: q.questionKey,
+        num: q.num,
+        score: r.answers[q.questionKey] ?? null,
+      })),
     };
   });
 
