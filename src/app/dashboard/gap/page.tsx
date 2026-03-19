@@ -285,6 +285,14 @@ export default function GapPage() {
 
       <section className="grid gap-6 xl:grid-cols-[360px,minmax(0,1fr)]">
         <div className="space-y-3">
+          <div className="rounded-[24px] border border-[#DBEAFE] bg-[linear-gradient(135deg,#EFF6FF_0%,#F8FAFC_100%)] p-4">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#2563EB]">Clinic Selector</p>
+            <p className="mt-2 text-sm font-medium text-[#0F172A]">左の院カードを押すと、右側のグラフと分析コメントが切り替わります。</p>
+            <div className="mt-3 flex items-center gap-2 text-xs text-[#475569]">
+              <span className="inline-flex h-6 items-center rounded-full bg-[#0F172A] px-2.5 font-semibold text-white">選択中</span>
+              <span>現在は「{selectedGap.clinic}」を表示中です。</span>
+            </div>
+          </div>
           {gaps.map((gap) => {
             const tone = getGapTone(gap.gapAvg);
             const topBad = getTopPositiveQuestions(gap)[0];
@@ -297,18 +305,32 @@ export default function GapPage() {
                 onClick={() => setSelected(gap.clinic)}
                 className={`w-full rounded-[24px] border p-4 text-left transition-all ${
                   isSelected
-                    ? "border-[#0F172A] bg-[#0F172A] text-white shadow-lg shadow-[#0F172A]/10"
+                    ? "border-[#0F172A] bg-[#0F172A] text-white shadow-lg shadow-[#0F172A]/10 ring-2 ring-[#FDBA74]/60"
                     : "border-[#E2E8F0] bg-white hover:border-[#CBD5E1] hover:shadow-sm"
                 }`}
               >
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <p className={`text-lg font-semibold ${isSelected ? "text-white" : "text-[#0F172A]"}`}>{gap.clinic}</p>
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`inline-flex h-6 min-w-6 items-center justify-center rounded-full border text-[11px] font-bold ${
+                          isSelected ? "border-white/30 bg-white/10 text-white" : "border-[#CBD5E1] bg-[#F8FAFC] text-[#475569]"
+                        }`}
+                      >
+                        {isSelected ? "✓" : "→"}
+                      </span>
+                      <p className={`text-lg font-semibold ${isSelected ? "text-white" : "text-[#0F172A]"}`}>{gap.clinic}</p>
+                    </div>
                     <p className={`mt-1 text-xs ${isSelected ? "text-white/70" : "text-[#64748B]"}`}>最大ギャップ Q{gap.maxGap.num} {gap.maxGap.shortLabel}</p>
                   </div>
-                  <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${isSelected ? "border-white/20 bg-white/10 text-white" : tone.chip}`}>
-                    {tone.label}
-                  </span>
+                  <div className="flex flex-col items-end gap-2">
+                    <span className={`rounded-full border px-2.5 py-1 text-[11px] font-semibold ${isSelected ? "border-white/20 bg-white/10 text-white" : tone.chip}`}>
+                      {tone.label}
+                    </span>
+                    <span className={`text-[11px] font-medium ${isSelected ? "text-[#FDBA74]" : "text-[#64748B]"}`}>
+                      {isSelected ? "右側に表示中" : "押すと右側を更新"}
+                    </span>
+                  </div>
                 </div>
 
                 <div className="mt-4 grid grid-cols-3 gap-2">
@@ -368,8 +390,13 @@ export default function GapPage() {
                   {selectedTone.label}。最もズレが大きいのは Q{selectedGap.maxGap.num}「{selectedGap.maxGap.shortLabel}」です。
                 </p>
               </div>
-              <div className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${selectedTone.chip}`}>
-                平均ギャップ {selectedGap.gapAvg > 0 ? "+" : ""}{selectedGap.gapAvg.toFixed(2)}
+              <div className="flex flex-col items-start gap-2 lg:items-end">
+                <div className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${selectedTone.chip}`}>
+                  平均ギャップ {selectedGap.gapAvg > 0 ? "+" : ""}{selectedGap.gapAvg.toFixed(2)}
+                </div>
+                <div className="rounded-full bg-[#F8FAFC] px-3 py-1 text-[11px] font-medium text-[#475569]">
+                  左の院カードを押すとこの内容が切り替わります
+                </div>
               </div>
             </div>
 

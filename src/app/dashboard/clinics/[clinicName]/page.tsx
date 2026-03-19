@@ -10,7 +10,7 @@ import { ScoreBar } from "@/components/score-bar";
 import { AreaBadge } from "@/components/area-badge";
 import {
   Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
-  ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend,
+  ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend, Cell, ReferenceLine,
 } from "recharts";
 import type { AreaKey } from "@/lib/questions";
 
@@ -50,6 +50,59 @@ function isClinicDetail(value: unknown): value is ClinicDetail {
     && Array.isArray(value.freeTexts);
 }
 
+function getGapBarColor(gap: number | null) {
+  if (gap == null) return "#CBD5E1";
+  if (gap >= 1.0) return "#EF4444";
+  if (gap >= 0.35) return "#FB7185";
+  if (gap <= -1.0) return "#2563EB";
+  if (gap <= -0.35) return "#38BDF8";
+  return "#94A3B8";
+}
+
+function ClinicGapTooltip({
+  active,
+  payload,
+  label,
+}: {
+  active?: boolean;
+  payload?: Array<{
+    payload: {
+      label: string;
+      gap: number | null;
+      directorScore: number | null;
+      staffScore: number | null;
+      areaLabel: string;
+    };
+  }>;
+  label?: string;
+}) {
+  if (!active || !payload?.length) return null;
+
+  const item = payload[0].payload;
+  return (
+    <div className="rounded-2xl border border-[#E2E8F0] bg-white/95 px-4 py-3 shadow-xl backdrop-blur">
+      <p className="text-sm font-semibold text-[#0F172A]">{label}</p>
+      <p className="mt-1 text-xs text-[#475569]">{item.areaLabel}</p>
+      <div className="mt-3 space-y-1.5 text-xs text-[#334155]">
+        <div className="flex items-center justify-between gap-6">
+          <span>院長自己評価</span>
+          <span className="font-semibold text-[#DC2626]">{item.directorScore?.toFixed(2) ?? "-"}</span>
+        </div>
+        <div className="flex items-center justify-between gap-6">
+          <span>スタッフ平均</span>
+          <span className="font-semibold text-[#2563EB]">{item.staffScore?.toFixed(2) ?? "-"}</span>
+        </div>
+        <div className="flex items-center justify-between gap-6 border-t border-[#E2E8F0] pt-2">
+          <span>ギャップ</span>
+          <span className="font-bold" style={{ color: getGapBarColor(item.gap) }}>
+            {item.gap != null ? `${item.gap > 0 ? "+" : ""}${item.gap.toFixed(2)}` : "-"}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function ClinicDetailPage() {
   const params = useParams();
   const { id: surveyId } = useSurveyContext();
@@ -81,11 +134,17 @@ export default function ClinicDetailPage() {
   }));
 
   // Gap chart data
-  const gapData = data.directorResponse?.map((d) => ({
-    name: `Q${d.num}`,
-    院長: d.directorScore,
-    スタッフ: d.staffScore,
-  }));
+  const gapData = data.questionScores
+    .filter((q) => q.directorScore != null && q.clinicScore != null)
+    .map((q) => ({
+      id: q.id,
+      label: `Q${q.num} ${q.shortLabel}`,
+      shortLabel: q.shortLabel,
+      areaLabel: q.areaLabel,
+      gap: q.directorScore != null && q.clinicScore != null ? Math.round((q.directorScore - q.clinicScore) * 100) / 100 : null,
+      directorScore: q.directorScore,
+      staffScore: q.clinicScore,
+    }));
 
   return (
     <div>
@@ -186,18 +245,39 @@ export default function ClinicDetailPage() {
       {/* Director Gap */}
       <div className="bg-white rounded-xl border border-[#E2E8F0] p-5 shadow-sm mb-8">
         <h3 className="text-[15px] font-medium text-[#1E293B] mb-4">院長とのギャップ</h3>
-        {data.directorResponse && gapData ? (
-          <ResponsiveContainer width="100%" height={400}>
-            <BarChart data={gapData} layout="vertical" margin={{ left: 40 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
-              <XAxis type="number" domain={[0, 5]} tick={{ fontSize: 11 }} />
-              <YAxis dataKey="name" type="category" tick={{ fontSize: 11 }} width={40} />
-              <Tooltip />
-              <Legend wrapperStyle={{ fontSize: 11 }} />
-              <Bar dataKey="院長" fill="#8B5CF6" barSize={12} radius={[0, 4, 4, 0]} />
-              <Bar dataKey="スタッフ" fill="#3B82F6" barSize={12} radius={[0, 4, 4, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+        {data.directorResponse && gapData.length > 0 ? (
+          <>
+            <p className="mb-4 text-sm text-[#64748B]">
+              プラスは院長自己評価が高く、マイナスはスタッフ評価が高い状態です。
+            </p>
+            <ResponsiveContainer width="100%" height={420}>
+              <BarChart data={gapData} margin={{ top: 12, right: 16, left: 12, bottom: 72 }}>
+                <CartesianGrid vertical={false} stroke="#E2E8F0" />
+                <XAxis
+                  dataKey="shortLabel"
+                  interval={0}
+                  angle={-45}
+                  textAnchor="end"
+                  height={84}
+                  tick={{ fontSize: 11, fill: "#475569" }}
+                />
+                <YAxis
+                  domain={[-3, 3]}
+                  tickCount={7}
+                  tick={{ fontSize: 11, fill: "#475569" }}
+                  tickFormatter={(value) => `${value > 0 ? "+" : ""}${value.toFixed(2)}`}
+                  label={{ value: "ギャップ値", angle: -90, position: "insideLeft", style: { fill: "#475569", fontSize: 12 } }}
+                />
+                <ReferenceLine y={0} stroke="#0F172A" strokeWidth={1.2} />
+                <Tooltip content={<ClinicGapTooltip />} cursor={{ fill: "#F8FAFC" }} />
+                <Bar dataKey="gap" radius={[6, 6, 0, 0]} maxBarSize={34}>
+                  {gapData.map((item) => (
+                    <Cell key={item.id} fill={getGapBarColor(item.gap)} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </>
         ) : (
           <p className="text-sm text-[#94A3B8] py-8 text-center">院長回答なし</p>
         )}
