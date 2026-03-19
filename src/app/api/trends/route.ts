@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
 import { getSurvey } from "@/lib/db";
-import { QUESTIONS, AREAS, AREA_ORDER } from "@/lib/questions";
-import { getClinicAverageScores, getClinicStaffAveragesByClinic } from "@/lib/survey-analytics";
+import { getClinicAverageScores, getClinicStaffAveragesByClinic, computeAreaAverages } from "@/lib/survey-analytics";
 
 export async function GET(request: NextRequest) {
   const authError = await requireAdmin();
@@ -20,26 +19,28 @@ export async function GET(request: NextRequest) {
     if (!survey) return null;
 
     const avg = await getClinicAverageScores(surveyId, "staff");
-    const clinicAverages = await getClinicStaffAveragesByClinic(surveyId);
+    const clinicData = await getClinicStaffAveragesByClinic(surveyId);
 
-    const areaAverages = AREA_ORDER.map((key) => {
-      const areaQuestions = QUESTIONS.filter((q) => q.area === key);
-      const areaScores = areaQuestions.map((q) => avg[q.id] as number | null).filter((v): v is number => v != null);
-      return {
-        area: key,
-        label: AREAS[key].label,
-        color: AREAS[key].color,
-        score: areaScores.length > 0 ? Math.round((areaScores.reduce((a, b) => a + b, 0) / areaScores.length) * 100) / 100 : 0,
-      };
-    });
+    const areaAverages = computeAreaAverages(avg.questions, avg.averages);
 
-    const clinicScores = clinicAverages.map((ca) => {
-      const scores = QUESTIONS.map((q) => ca[q.id] as number | null).filter((v): v is number => v != null);
+    const clinicScores = clinicData.rows.map((ca) => {
+      const scores = clinicData.questions.map((q) => ca.averages[q.questionKey]).filter((v): v is number => v != null);
       return {
         clinic: ca.clinic,
         avg: scores.length > 0 ? Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 100) / 100 : 0,
       };
     });
+
+    const questionScores = avg.questions.map((q) => ({
+      questionKey: q.questionKey,
+      num: q.num,
+      shortLabel: q.shortLabel,
+      area: q.area,
+      areaLabel: q.areaLabel,
+      score: avg.averages[q.questionKey] != null
+        ? Math.round((avg.averages[q.questionKey] as number) * 100) / 100
+        : null,
+    }));
 
     return {
       surveyId,
@@ -47,6 +48,7 @@ export async function GET(request: NextRequest) {
       conductedAt: survey.conducted_at,
       areaAverages,
       clinicScores,
+      questionScores,
     };
   }))).filter(Boolean);
 

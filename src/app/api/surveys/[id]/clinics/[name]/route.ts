@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
-import { QUESTIONS, AREAS, AREA_ORDER, getShortLabel } from "@/lib/questions";
 import {
   getClinicAverageScores,
   getClinicLatestDirectorByClinic,
   getClinicNormalizedResponses,
+  computeAreaAverages,
 } from "@/lib/survey-analytics";
 
 export async function GET(
@@ -18,30 +18,35 @@ export async function GET(
   const surveyId = parseInt(id);
   const clinicName = decodeURIComponent(name);
 
-  // Clinic averages
   const clinicAvg = await getClinicAverageScores(surveyId, "staff", clinicName);
-  // Overall averages
   const overallAvg = await getClinicAverageScores(surveyId, "staff");
-  // Individual responses
   const staffResponses = await getClinicNormalizedResponses(surveyId, { type: "staff", clinic: clinicName });
-  // Director response
   const directorResponse = (await getClinicLatestDirectorByClinic(surveyId)).get(clinicName) ?? null;
 
-  // Question scores with comparison
-  const questionScores = QUESTIONS.map((q) => {
-    const clinicScore = clinicAvg[q.id] != null ? Math.round((clinicAvg[q.id] as number) * 100) / 100 : null;
-    const globalScore = overallAvg[q.id] != null ? Math.round((overallAvg[q.id] as number) * 100) / 100 : null;
-    const diff = clinicScore != null && globalScore != null ? Math.round((clinicScore - globalScore) * 100) / 100 : null;
-    const directorScore = directorResponse ? directorResponse.answers[q.id] : null;
+  const questions = clinicAvg.questions;
+
+  const questionScores = questions.map((q) => {
+    const clinicScore = clinicAvg.averages[q.questionKey] != null
+      ? Math.round((clinicAvg.averages[q.questionKey] as number) * 100) / 100
+      : null;
+    const globalScore = overallAvg.averages[q.questionKey] != null
+      ? Math.round((overallAvg.averages[q.questionKey] as number) * 100) / 100
+      : null;
+    const diff = clinicScore != null && globalScore != null
+      ? Math.round((clinicScore - globalScore) * 100) / 100
+      : null;
+    const directorScore = directorResponse
+      ? directorResponse.answers[q.questionKey] ?? null
+      : null;
 
     return {
-      id: q.id,
+      id: q.questionKey,
       num: q.num,
       text: q.staffText,
-      shortLabel: getShortLabel(q),
+      shortLabel: q.shortLabel,
       area: q.area,
       areaLabel: q.areaLabel,
-      areaColor: AREAS[q.area].color,
+      areaColor: q.areaColor,
       clinicScore,
       globalScore,
       diff,
@@ -49,23 +54,19 @@ export async function GET(
     };
   });
 
-  // Area averages
-  const areaAverages = AREA_ORDER.map((key) => {
-    const areaQuestions = QUESTIONS.filter((q) => q.area === key);
-    const clinicScores = areaQuestions.map((q) => clinicAvg[q.id] as number | null).filter((v): v is number => v != null);
-    const globalScores = areaQuestions.map((q) => overallAvg[q.id] as number | null).filter((v): v is number => v != null);
+  const areaAverages = computeAreaAverages(questions, clinicAvg.averages).map((a) => {
+    const globalArea = computeAreaAverages(questions, overallAvg.averages).find((g) => g.area === a.area);
     return {
-      area: key,
-      label: AREAS[key].label,
-      color: AREAS[key].color,
-      clinicScore: clinicScores.length > 0 ? Math.round((clinicScores.reduce((a, b) => a + b, 0) / clinicScores.length) * 100) / 100 : 0,
-      globalScore: globalScores.length > 0 ? Math.round((globalScores.reduce((a, b) => a + b, 0) / globalScores.length) * 100) / 100 : 0,
+      area: a.area,
+      label: a.label,
+      color: a.color,
+      clinicScore: a.score,
+      globalScore: globalArea?.score ?? 0,
     };
   });
 
-  // Individual responses formatted
   const responses = staffResponses.map((r) => {
-    const scores = QUESTIONS.map((q) => r.answers[q.id]).filter((v): v is number => v != null);
+    const scores = questions.map((q) => r.answers[q.questionKey]).filter((v): v is number => v != null);
     const avg = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
     return {
       id: r.key,
@@ -76,7 +77,6 @@ export async function GET(
     };
   });
 
-  // Free text comments
   const freeTexts = staffResponses
     .filter((r) => r.freeText && r.freeText.trim())
     .map((r) => ({
@@ -85,13 +85,13 @@ export async function GET(
       timestamp: r.timestamp || "",
     }));
 
-  const allClinicScores = QUESTIONS.map((q) => clinicAvg[q.id] as number | null).filter((v): v is number => v != null);
+  const allClinicScores = questions.map((q) => clinicAvg.averages[q.questionKey]).filter((v): v is number => v != null);
   const clinicOverallAvg = allClinicScores.length > 0 ? allClinicScores.reduce((a, b) => a + b, 0) / allClinicScores.length : 0;
 
   let highestQ = { num: 0, score: 0 };
   let lowestQ = { num: 0, score: 5 };
-  for (const q of QUESTIONS) {
-    const val = clinicAvg[q.id] as number | null;
+  for (const q of questions) {
+    const val = clinicAvg.averages[q.questionKey];
     if (val != null) {
       if (val > highestQ.score) highestQ = { num: q.num, score: Math.round(val * 100) / 100 };
       if (val < lowestQ.score) lowestQ = { num: q.num, score: Math.round(val * 100) / 100 };
@@ -110,12 +110,14 @@ export async function GET(
     responses,
     freeTexts,
     directorResponse: directorResponse
-      ? QUESTIONS.map((q) => ({
-          id: q.id,
+      ? questions.map((q) => ({
+          id: q.questionKey,
           num: q.num,
-          shortLabel: getShortLabel(q),
-          directorScore: directorResponse.answers[q.id],
-          staffScore: clinicAvg[q.id] != null ? Math.round((clinicAvg[q.id] as number) * 100) / 100 : null,
+          shortLabel: q.shortLabel,
+          directorScore: directorResponse.answers[q.questionKey] ?? null,
+          staffScore: clinicAvg.averages[q.questionKey] != null
+            ? Math.round((clinicAvg.averages[q.questionKey] as number) * 100) / 100
+            : null,
         }))
       : null,
   });

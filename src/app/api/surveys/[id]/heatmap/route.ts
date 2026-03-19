@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
-import { QUESTIONS, getShortLabel } from "@/lib/questions";
 import { getClinicStaffAveragesByClinic } from "@/lib/survey-analytics";
 
 export async function GET(
@@ -12,29 +11,30 @@ export async function GET(
 
   const { id } = await params;
   const surveyId = parseInt(id);
-  const clinicAverages = await getClinicStaffAveragesByClinic(surveyId);
+  const clinicData = await getClinicStaffAveragesByClinic(surveyId);
+  const questions = clinicData.questions;
 
-  const clinics = clinicAverages.map((ca) => ca.clinic);
+  const clinics = clinicData.rows.map((ca) => ca.clinic);
 
-  const rows = QUESTIONS.map((q) => {
+  const rows = questions.map((q) => {
     const values: Record<string, number | null> = {};
-    for (const ca of clinicAverages) {
-      values[ca.clinic] = ca[q.id] != null ? Math.round((ca[q.id] as number) * 100) / 100 : null;
+    for (const ca of clinicData.rows) {
+      const val = ca.averages[q.questionKey];
+      values[ca.clinic] = val != null ? Math.round(val * 100) / 100 : null;
     }
     return {
-      id: q.id,
+      id: q.questionKey,
       num: q.num,
-      shortLabel: getShortLabel(q),
+      shortLabel: q.shortLabel,
       area: q.area,
       areaLabel: q.areaLabel,
       values,
     };
   });
 
-  // Clinic overall averages
   const clinicTotals: Record<string, { avg: number; count: number }> = {};
-  for (const ca of clinicAverages) {
-    const scores = QUESTIONS.map((q) => ca[q.id] as number | null).filter((v): v is number => v != null);
+  for (const ca of clinicData.rows) {
+    const scores = questions.map((q) => ca.averages[q.questionKey]).filter((v): v is number => v != null);
     clinicTotals[ca.clinic] = {
       avg: scores.length > 0 ? Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 100) / 100 : 0,
       count: ca.count,

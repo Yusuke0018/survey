@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
-import { QUESTIONS, AREAS, AREA_ORDER, getShortLabel } from "@/lib/questions";
-import { getClinicAverageScores } from "@/lib/survey-analytics";
+import { getClinicAverageScores, computeAreaAverages } from "@/lib/survey-analytics";
 
 export async function GET(
   _request: NextRequest,
@@ -14,29 +13,21 @@ export async function GET(
   const surveyId = parseInt(id);
   const avg = await getClinicAverageScores(surveyId, "staff");
 
-  const scores = QUESTIONS.map((q) => ({
-    id: q.id,
-    num: q.num,
-    text: q.staffText,
-    shortLabel: getShortLabel(q),
-    area: q.area,
-    areaLabel: q.areaLabel,
-    areaColor: AREAS[q.area].color,
-    score: avg[q.id] != null ? Math.round((avg[q.id] as number) * 100) / 100 : null,
-  }));
-
-  // Area averages for radar chart
-  const areaAverages = AREA_ORDER.map((key) => {
-    const areaQuestions = QUESTIONS.filter((q) => q.area === key);
-    const areaScores = areaQuestions.map((q) => avg[q.id] as number | null).filter((v): v is number => v != null);
-    const areaAvg = areaScores.length > 0 ? areaScores.reduce((a, b) => a + b, 0) / areaScores.length : 0;
+  const scores = avg.questions.map((q) => {
+    const val = avg.averages[q.questionKey];
     return {
-      area: key,
-      label: AREAS[key].label,
-      color: AREAS[key].color,
-      score: Math.round(areaAvg * 100) / 100,
+      id: q.questionKey,
+      num: q.num,
+      text: q.staffText,
+      shortLabel: q.shortLabel,
+      area: q.area,
+      areaLabel: q.areaLabel,
+      areaColor: q.areaColor,
+      score: val != null ? Math.round(val * 100) / 100 : null,
     };
   });
+
+  const areaAverages = computeAreaAverages(avg.questions, avg.averages);
 
   return NextResponse.json({ scores, areaAverages });
 }

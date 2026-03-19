@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
 import { getSurvey, getNewScoreAverages, queryAll, queryOne } from "@/lib/db";
-import { QUESTIONS } from "@/lib/questions";
 import { getClinicAverageScores, getClinicNormalizedResponses } from "@/lib/survey-analytics";
 
 export async function GET(
@@ -25,7 +24,6 @@ export async function GET(
     const managerCount = (await queryOne<{ c: number }>("SELECT COUNT(*) as c FROM responses WHERE survey_id = ? AND type = 'manager'", [surveyId]))?.c ?? 0;
     const corporateCount = (await queryOne<{ c: number }>("SELECT COUNT(*) as c FROM responses WHERE survey_id = ? AND type = 'corporate'", [surveyId]))?.c ?? 0;
 
-    // Get staff score averages
     const staffScores = await getNewScoreAverages(surveyId, "staff");
     const validScores = staffScores.filter((s) => s.avg_score != null);
     const overallAvg = validScores.length > 0
@@ -40,7 +38,6 @@ export async function GET(
       if (score < lowest.score) lowest = { num: s.num, score, area: s.area };
     }
 
-    // Get entity list with counts
     const entities = await queryAll<{ entity: string; count: number }>(`
       SELECT entity, COUNT(*) as count FROM responses
       WHERE survey_id = ? AND type = 'staff' AND entity IS NOT NULL
@@ -59,7 +56,7 @@ export async function GET(
     });
   }
 
-  // Clinic survey summary (original)
+  // Clinic survey summary
   const staffAvg = await getClinicAverageScores(surveyId, "staff");
   const staffCount = staffAvg.count;
   const directorCount = (await getClinicNormalizedResponses(surveyId, { type: "director" })).length;
@@ -68,8 +65,8 @@ export async function GET(
   let highestQ = { num: 0, score: 0, area: "" };
   let lowestQ = { num: 0, score: 5, area: "" };
 
-  for (const q of QUESTIONS) {
-    const val = staffAvg[q.id] as number | null;
+  for (const q of staffAvg.questions) {
+    const val = staffAvg.averages[q.questionKey];
     if (val != null) {
       scores.push(val);
       if (val > highestQ.score) highestQ = { num: q.num, score: val, area: q.areaLabel };
