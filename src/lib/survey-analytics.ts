@@ -51,6 +51,12 @@ export interface SurveyResponseSummary {
   lowestQuestion: string | null;
   lowestScore: number | null;
   hasFreeText: boolean;
+  freeText: string | null;
+  answers: Array<{
+    num: number;
+    value: number | null;
+    skipReason: string | null;
+  }>;
 }
 
 export interface SurveyResponseDetail {
@@ -368,6 +374,12 @@ function buildClinicResponseSummary(response: ClinicNormalizedResponse): SurveyR
     lowestQuestion: summary.lowestQuestion,
     lowestScore: summary.lowestScore,
     hasFreeText: !!response.freeText?.trim(),
+    freeText: response.freeText,
+    answers: QUESTIONS.map((question) => ({
+      num: question.num,
+      value: response.answers[question.id],
+      skipReason: response.skipReasons[question.id],
+    })),
   };
 }
 
@@ -384,7 +396,8 @@ async function getJigyotaiResponseSummaries(
       r.timestamp,
       r.free_text,
       qt.num,
-      ra.score
+      ra.score,
+      ra.skip_reason
     FROM responses r
     JOIN response_answers ra ON ra.response_id = r.id
     JOIN question_templates qt ON qt.id = ra.question_id
@@ -414,6 +427,7 @@ async function getJigyotaiResponseSummaries(
     free_text: string | null;
     num: number;
     score: number | null;
+    skip_reason: string | null;
   }>(sql, args);
 
   const grouped = new Map<number, {
@@ -422,7 +436,7 @@ async function getJigyotaiResponseSummaries(
     respondentName: string | null;
     timestamp: string | null;
     freeText: string | null;
-    scores: Array<{ num: number; score: number | null }>;
+    scores: Array<{ num: number; score: number | null; skipReason: string | null }>;
   }>();
 
   for (const row of rows) {
@@ -434,7 +448,7 @@ async function getJigyotaiResponseSummaries(
       freeText: row.free_text,
       scores: [],
     };
-    bucket.scores.push({ num: row.num, score: row.score });
+    bucket.scores.push({ num: row.num, score: row.score, skipReason: row.skip_reason });
     grouped.set(row.response_id, bucket);
   }
 
@@ -457,6 +471,15 @@ async function getJigyotaiResponseSummaries(
         lowestQuestion: summary.lowestQuestion,
         lowestScore: summary.lowestScore,
         hasFreeText: !!response.freeText?.trim(),
+        freeText: response.freeText,
+        answers: response.scores
+          .slice()
+          .sort((a, b) => a.num - b.num)
+          .map((score) => ({
+            num: score.num,
+            value: score.score,
+            skipReason: score.skipReason,
+          })),
       };
     });
 }

@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { ScoreBadge } from "@/components/score-badge";
+import { useEffect, useMemo, useState } from "react";
+import { ScoreBadge, getScoreBorderColor, getScoreColor, getScoreTextColor } from "@/components/score-badge";
 import { CLINIC_GROUPS } from "@/lib/clinics";
 import { ENTITY_GROUPS } from "@/lib/entities";
 import { useSurveyContext } from "@/components/survey-context";
@@ -19,29 +19,11 @@ interface ResponseItem {
   lowestQuestion: string | null;
   lowestScore: number | null;
   hasFreeText: boolean;
-}
-
-interface ResponseDetail {
-  key: string;
-  respondentType: "staff" | "director" | "manager" | "corporate";
-  respondentTypeLabel: string;
-  orgUnit: string;
-  orgUnitLabel: string;
-  name: string;
-  timestamp: string | null;
-  avgScore: number;
   freeText: string | null;
-  questions: Array<{
-    id: string;
+  answers: Array<{
     num: number;
-    text: string;
-    shortLabel: string;
-    area: string;
-    areaLabel: string;
     value: number | null;
     skipReason: string | null;
-    benchmark: number | null;
-    diff: number | null;
   }>;
 }
 
@@ -69,6 +51,20 @@ const JIGYOTAI_TYPES = [
   { value: "corporate", label: "経営企画室" },
 ];
 
+function getAnswerCellStyle(value: number | null) {
+  return {
+    backgroundColor: getScoreColor(value),
+    color: getScoreTextColor(value),
+    borderColor: getScoreBorderColor(value),
+  };
+}
+
+function getAnswerLabel(value: number | null, skipReason: string | null) {
+  if (skipReason) return "SKIP";
+  if (value == null) return "-";
+  return String(value);
+}
+
 export default function ResponsesPage() {
   const { id: surveyId, type: surveyType } = useSurveyContext();
   const isJigyotai = surveyType === "jigyotai";
@@ -76,10 +72,6 @@ export default function ResponsesPage() {
   const [responses, setResponses] = useState<ResponseItem[]>([]);
   const [orgFilter, setOrgFilter] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
-  const [selectedKey, setSelectedKey] = useState<string | null>(null);
-  const [detail, setDetail] = useState<ResponseDetail | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [detailError, setDetailError] = useState<string | null>(null);
   const [tab, setTab] = useState<"list" | "freetext">("list");
   const [freeTexts, setFreeTexts] = useState<FreeTextItem[]>([]);
 
@@ -94,82 +86,51 @@ export default function ResponsesPage() {
     fetchJsonSafe(`/api/surveys/${surveyId}/free-text${query}`, Array.isArray, [] as FreeTextItem[]).then(setFreeTexts);
   }, [surveyId, orgFilter, typeFilter, isJigyotai]);
 
-  useEffect(() => {
-    if (!surveyId || !selectedKey) return;
-
-    let cancelled = false;
-
-    fetch(`/api/surveys/${surveyId}/responses/${encodeURIComponent(selectedKey)}`)
-      .then(async (r) => {
-        const data = await r.json().catch(() => null);
-        if (!r.ok) {
-          throw new Error(typeof data?.error === "string" ? data.error : "回答詳細の取得に失敗しました");
-        }
-        if (!data || !Array.isArray(data.questions)) {
-          throw new Error("回答詳細の形式が不正です");
-        }
-        return data as ResponseDetail;
-      })
-      .then((data) => {
-        if (cancelled) return;
-        setDetail(data);
-      })
-      .catch((error: unknown) => {
-        if (cancelled) return;
-        setDetailError(error instanceof Error ? error.message : "回答詳細の取得に失敗しました");
-      })
-      .finally(() => {
-        if (cancelled) return;
-        setDetailLoading(false);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [surveyId, selectedKey]);
+  const questionNumbers = useMemo(
+    () => [...new Set(responses.flatMap((response) => response.answers.map((answer) => answer.num)))].sort((a, b) => a - b),
+    [responses]
+  );
 
   if (!surveyId) {
-    return <div className="text-center py-20 text-[#64748B]">サーベイを選択してください</div>;
+    return <div className="py-20 text-center text-[#64748B]">サーベイを選択してください</div>;
   }
 
   const typeOptions = isJigyotai ? JIGYOTAI_TYPES : CLINIC_TYPES;
-  const groupedQuestions = detail?.questions?.reduce<Record<string, ResponseDetail["questions"]>>((acc, question) => {
-    if (!acc[question.areaLabel]) {
-      acc[question.areaLabel] = [];
-    }
-    acc[question.areaLabel].push(question);
-    return acc;
-  }, {}) || {};
 
   return (
     <div className="relative">
-      <h2 className="text-2xl font-bold text-[#1E293B] mb-6">個別回答ビューア</h2>
+      <div className="mb-6 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+        <div>
+          <h2 className="text-2xl font-bold text-[#1E293B]">個別回答ビューア</h2>
+          <p className="mt-2 text-sm text-[#64748B]">
+            平均だけではなく、各回答の Q1 から自由記入まで横並びで確認できます。横スクロールで全設問を見られます。
+          </p>
+        </div>
+        <div className="rounded-2xl border border-[#DBEAFE] bg-[#F8FBFF] px-4 py-3 text-xs text-[#1D4ED8]">
+          ぱっと見で弱い項目を拾えるように、低得点は赤、高得点は緑で表示しています。
+        </div>
+      </div>
 
-      <div className="flex gap-4 mb-4">
+      <div className="mb-4 flex gap-4">
         <button
-          className={`text-sm px-4 py-2 rounded-lg transition-colors ${tab === "list" ? "bg-[#2563EB] text-white" : "bg-white text-[#64748B] border border-[#E2E8F0]"}`}
+          className={`rounded-lg px-4 py-2 text-sm transition-colors ${tab === "list" ? "bg-[#2563EB] text-white" : "border border-[#E2E8F0] bg-white text-[#64748B]"}`}
           onClick={() => setTab("list")}
         >
           回答一覧
         </button>
         <button
-          className={`text-sm px-4 py-2 rounded-lg transition-colors ${tab === "freetext" ? "bg-[#2563EB] text-white" : "bg-white text-[#64748B] border border-[#E2E8F0]"}`}
+          className={`rounded-lg px-4 py-2 text-sm transition-colors ${tab === "freetext" ? "bg-[#2563EB] text-white" : "border border-[#E2E8F0] bg-white text-[#64748B]"}`}
           onClick={() => setTab("freetext")}
         >
           自由記入一覧
         </button>
       </div>
 
-      <div className="flex gap-4 mb-6 flex-wrap">
+      <div className="mb-6 flex flex-wrap gap-4">
         <select
           value={typeFilter}
-          onChange={(e) => {
-            setSelectedKey(null);
-            setDetail(null);
-            setDetailError(null);
-            setTypeFilter(e.target.value);
-          }}
-          className="border border-[#E5E7EB] rounded-xl px-4 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#10B981]/30"
+          onChange={(e) => setTypeFilter(e.target.value)}
+          className="rounded-xl border border-[#E5E7EB] bg-white px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#10B981]/30"
         >
           {typeOptions.map((option) => (
             <option key={option.value || "all"} value={option.value}>{option.label}</option>
@@ -178,13 +139,8 @@ export default function ResponsesPage() {
 
         <select
           value={orgFilter}
-          onChange={(e) => {
-            setSelectedKey(null);
-            setDetail(null);
-            setDetailError(null);
-            setOrgFilter(e.target.value);
-          }}
-          className="border border-[#E5E7EB] rounded-xl px-4 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#10B981]/30"
+          onChange={(e) => setOrgFilter(e.target.value)}
+          className="rounded-xl border border-[#E5E7EB] bg-white px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#10B981]/30"
         >
           <option value="">{isJigyotai ? "全事業体" : "全拠点"}</option>
           {isJigyotai
@@ -206,153 +162,90 @@ export default function ResponsesPage() {
       </div>
 
       {tab === "list" ? (
-        <div className="flex gap-6">
-          <div className={`bg-white rounded-xl border border-[#E2E8F0] shadow-sm flex-1 overflow-hidden ${selectedKey ? "max-w-[calc(100%-440px)]" : ""}`}>
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="bg-[#FAFBFC] border-b border-[#E2E8F0]">
-                    <th className="text-left px-4 py-3 text-[#64748B] font-medium">日時</th>
-                    <th className="text-left px-4 py-3 text-[#64748B] font-medium">回答者</th>
-                    <th className="text-left px-4 py-3 text-[#64748B] font-medium">{isJigyotai ? "事業体" : "拠点"}</th>
-                    <th className="text-left px-4 py-3 text-[#64748B] font-medium">氏名</th>
-                    <th className="text-left px-4 py-3 text-[#64748B] font-medium">平均</th>
-                    <th className="text-left px-4 py-3 text-[#64748B] font-medium">最低</th>
-                    <th className="text-center px-4 py-3 text-[#64748B] font-medium">💬</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {responses.map((response) => (
-                    <tr
-                      key={response.key}
-                      className={`border-b border-[#E2E8F0]/50 cursor-pointer hover:bg-[#EFF6FF]/50 transition-colors ${selectedKey === response.key ? "bg-[#EFF6FF]" : ""}`}
-                      onClick={() => {
-                        const nextKey = response.key === selectedKey ? null : response.key;
-                        setDetail(null);
-                        setDetailError(null);
-                        setDetailLoading(nextKey !== null);
-                        setSelectedKey(nextKey);
-                        if (!nextKey) {
-                          setDetailLoading(false);
-                        }
-                      }}
-                    >
-                      <td className="px-4 py-2.5 text-[#64748B]">{response.timestamp || "-"}</td>
-                      <td className="px-4 py-2.5 text-[#1E293B]">{response.respondentTypeLabel}</td>
-                      <td className="px-4 py-2.5 text-[#1E293B] truncate max-w-[180px]">{response.orgUnit}</td>
-                      <td className="px-4 py-2.5 text-[#1E293B]">{response.name}</td>
-                      <td className="px-4 py-2.5"><ScoreBadge score={response.avgScore} size="sm" /></td>
-                      <td className="px-4 py-2.5 text-[#991B1B]">{response.lowestQuestion}: {response.lowestScore ?? "-"}</td>
-                      <td className="px-4 py-2.5 text-center">{response.hasFreeText ? "💬" : ""}</td>
-                    </tr>
+        <div className="overflow-hidden rounded-2xl border border-[#E2E8F0] bg-white shadow-sm">
+          <div className="border-b border-[#E2E8F0] bg-[#F8FAFC] px-4 py-3 text-xs text-[#64748B]">
+            表示件数: <span className="font-semibold text-[#0F172A]">{responses.length}</span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="min-w-full border-separate border-spacing-0 text-xs">
+              <thead>
+                <tr className="bg-[#0F172A] text-white">
+                  <th className="sticky left-0 z-20 min-w-[108px] border-b border-[#1E293B] bg-[#0F172A] px-3 py-2 text-left font-semibold">日時</th>
+                  <th className="sticky left-[108px] z-20 min-w-[88px] border-b border-[#1E293B] bg-[#0F172A] px-3 py-2 text-left font-semibold">{isJigyotai ? "回答者" : "区分"}</th>
+                  <th className="sticky left-[196px] z-20 min-w-[160px] border-b border-[#1E293B] bg-[#0F172A] px-3 py-2 text-left font-semibold">{isJigyotai ? "事業体" : "拠点"}</th>
+                  <th className="sticky left-[356px] z-20 min-w-[120px] border-b border-[#1E293B] bg-[#0F172A] px-3 py-2 text-left font-semibold">氏名</th>
+                  <th className="sticky left-[476px] z-20 min-w-[84px] border-b border-[#1E293B] bg-[#0F172A] px-3 py-2 text-left font-semibold">平均</th>
+                  {questionNumbers.map((num) => (
+                    <th key={num} className="min-w-[56px] border-b border-[#1E293B] px-2 py-2 text-center font-semibold">
+                      Q{num}
+                    </th>
                   ))}
-                  {responses.length === 0 && (
-                    <tr>
-                      <td colSpan={7} className="px-4 py-12 text-center text-[#64748B]">
-                        条件に一致する回答がありません
+                  <th className="min-w-[320px] border-b border-[#1E293B] px-3 py-2 text-left font-semibold">自由記入</th>
+                </tr>
+              </thead>
+              <tbody>
+                {responses.map((response, index) => {
+                  const answerMap = new Map(response.answers.map((answer) => [answer.num, answer]));
+                  return (
+                    <tr key={response.key} className={index % 2 === 0 ? "bg-white" : "bg-[#FBFDFF]"}>
+                      <td className="sticky left-0 z-10 border-b border-[#E2E8F0] bg-inherit px-3 py-2 text-[#475569]">
+                        {response.timestamp || "-"}
+                      </td>
+                      <td className="sticky left-[108px] z-10 border-b border-[#E2E8F0] bg-inherit px-3 py-2 text-[#0F172A]">
+                        {response.respondentTypeLabel}
+                      </td>
+                      <td className="sticky left-[196px] z-10 max-w-[160px] truncate border-b border-[#E2E8F0] bg-inherit px-3 py-2 text-[#0F172A]">
+                        {response.orgUnit}
+                      </td>
+                      <td className="sticky left-[356px] z-10 border-b border-[#E2E8F0] bg-inherit px-3 py-2 text-[#0F172A]">
+                        {response.name}
+                      </td>
+                      <td className="sticky left-[476px] z-10 border-b border-[#E2E8F0] bg-inherit px-3 py-2">
+                        <ScoreBadge score={response.avgScore} size="sm" />
+                      </td>
+                      {questionNumbers.map((num) => {
+                        const answer = answerMap.get(num);
+                        const cellValue = answer?.value ?? null;
+                        return (
+                          <td key={num} className="border-b border-[#E2E8F0] px-1.5 py-2 text-center">
+                            <div
+                              className="mx-auto flex h-8 w-10 items-center justify-center rounded-md border text-[11px] font-bold"
+                              style={getAnswerCellStyle(answer?.skipReason ? null : cellValue)}
+                              title={answer?.skipReason || (cellValue != null ? `Q${num}: ${cellValue}` : `Q${num}: 未回答`)}
+                            >
+                              {getAnswerLabel(cellValue, answer?.skipReason || null)}
+                            </div>
+                          </td>
+                        );
+                      })}
+                      <td className="max-w-[320px] border-b border-[#E2E8F0] px-3 py-2 text-[#334155]">
+                        <div className={`line-clamp-3 ${response.hasFreeText ? "" : "text-[#94A3B8]"}`}>
+                          {response.freeText?.trim() || "-"}
+                        </div>
                       </td>
                     </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+                  );
+                })}
+                {responses.length === 0 && (
+                  <tr>
+                    <td colSpan={6 + questionNumbers.length} className="px-4 py-12 text-center text-[#64748B]">
+                      条件に一致する回答がありません
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
-
-          {selectedKey && (
-            <div className="w-[420px] flex-shrink-0 bg-white rounded-xl border border-[#E2E8F0] shadow-sm animate-slide-in overflow-y-auto max-h-[calc(100vh-200px)]">
-              <div className="sticky top-0 bg-white border-b border-[#E2E8F0] px-5 py-4 flex items-center justify-between">
-                <h4 className="text-sm font-semibold text-[#1E293B]">回答詳細</h4>
-                <button
-                  onClick={() => {
-                    setSelectedKey(null);
-                    setDetail(null);
-                    setDetailError(null);
-                  }}
-                  className="text-[#64748B] hover:text-[#1E293B]"
-                >
-                  ✕
-                </button>
-              </div>
-              <div className="p-5">
-                {detailLoading && (
-                  <div className="flex items-center justify-center py-10 text-sm text-[#64748B]">
-                    <div className="animate-spin w-5 h-5 border-2 border-[#10B981] border-t-transparent rounded-full" />
-                    <span className="ml-3">回答詳細を読み込み中...</span>
-                  </div>
-                )}
-
-                {!detailLoading && detailError && (
-                  <div className="rounded-xl border border-[#FECACA] bg-[#FEF2F2] p-4 text-sm text-[#B91C1C]">
-                    {detailError}
-                  </div>
-                )}
-
-                {!detailLoading && !detailError && detail && (
-                  <>
-                    <div className="space-y-1 mb-4 text-xs text-[#64748B]">
-                      <p>回答者: <span className="text-[#1E293B]">{detail.respondentTypeLabel}</span></p>
-                      <p>{detail.orgUnitLabel}: <span className="text-[#1E293B]">{detail.orgUnit}</span></p>
-                      <p>氏名: <span className="text-[#1E293B]">{detail.name}</span></p>
-                      <p>日時: <span className="text-[#1E293B]">{detail.timestamp || "-"}</span></p>
-                      <p>全体平均: <ScoreBadge score={detail.avgScore} size="sm" /></p>
-                    </div>
-
-                    {Object.entries(groupedQuestions).map(([area, questions]) => (
-                      <div key={area} className="mb-4">
-                        <div className="inline-flex items-center px-2 py-1 rounded-full bg-[#F1F5F9] text-[#334155] text-[11px] font-medium mb-2">
-                          {area}
-                        </div>
-                        <div className="space-y-2">
-                          {questions.map((question) => (
-                            <div key={question.id} className="rounded-lg border border-[#E2E8F0] p-3">
-                              <div className="flex items-center gap-2 mb-1 text-xs">
-                                <span className="text-[#64748B]">Q{question.num}</span>
-                                <span className="text-[#1E293B] font-medium">{question.shortLabel}</span>
-                              </div>
-                              <p className="text-[11px] text-[#64748B] mb-2">{question.text}</p>
-                              <div className="flex items-center gap-3 text-xs text-[#475569]">
-                                <span>回答: <strong>{question.value ?? "-"}</strong></span>
-                                <span>同組織平均: <strong>{question.benchmark ?? "-"}</strong></span>
-                                <span>差分: <strong>{question.diff ?? "-"}</strong></span>
-                              </div>
-                              {question.skipReason && (
-                                <div className="mt-2 inline-flex px-2 py-1 rounded-full bg-[#F8FAFC] text-[#64748B] text-[11px]">
-                                  {question.skipReason}
-                                </div>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-
-                    {detail.freeText && (
-                      <div className="mt-4 border-t border-[#E2E8F0] pt-4">
-                        <h5 className="text-xs font-medium text-[#64748B] mb-2">自由記入</h5>
-                        <div className="border-l-[3px] border-[#2563EB] bg-[#FAFBFC] rounded-r-lg p-3">
-                          <p className="text-xs text-[#1E293B] whitespace-pre-wrap">&ldquo;{detail.freeText}&rdquo;</p>
-                        </div>
-                      </div>
-                    )}
-                  </>
-                )}
-                
-                {!detailLoading && !detailError && !detail && (
-                  <div className="py-10 text-center text-sm text-[#64748B]">回答詳細を表示できません</div>
-                )}
-              </div>
-            </div>
-          )}
         </div>
       ) : (
         <div className="space-y-3">
           {freeTexts.length === 0 ? (
-            <div className="text-center py-20 text-[#64748B]">自由記入回答がありません</div>
+            <div className="py-20 text-center text-[#64748B]">自由記入回答がありません</div>
           ) : (
             freeTexts.map((freeText) => (
-              <div key={freeText.key} className="border-l-[3px] border-[#2563EB] bg-white rounded-r-xl p-4 shadow-sm">
-                <p className="text-sm text-[#1E293B] whitespace-pre-wrap mb-2">&ldquo;{freeText.text}&rdquo;</p>
-                <div className="flex items-center gap-3 text-[10px] text-[#64748B] flex-wrap">
+              <div key={freeText.key} className="rounded-r-xl border-l-[3px] border-[#2563EB] bg-white p-4 shadow-sm">
+                <p className="mb-2 whitespace-pre-wrap text-sm text-[#1E293B]">&ldquo;{freeText.text}&rdquo;</p>
+                <div className="flex flex-wrap items-center gap-3 text-[10px] text-[#64748B]">
                   <span>{freeText.respondentTypeLabel}</span>
                   <span>{freeText.orgUnit}</span>
                   <span>{freeText.name}</span>
