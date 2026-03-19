@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSurvey, getQuestionTemplates, submitResponse, hasSubmitted } from "@/lib/db";
+import { getCurrentGoogleUser } from "@/lib/auth";
+import { getSurvey, getQuestionTemplates, submitResponse, hasSubmitted, hasSubmittedByOwner } from "@/lib/db";
 import { getStorageWriteGuardResponse } from "@/lib/storage-mode";
 
 export async function POST(
@@ -19,6 +20,7 @@ export async function POST(
 
   const body = await request.json();
   const { clinic, entity, respondentName, freeText, answers, sessionToken, respondentType } = body;
+  const googleUser = await getCurrentGoogleUser();
 
   const orgUnit = survey.survey_type === "jigyotai" ? entity : clinic;
   if (!orgUnit) {
@@ -39,7 +41,15 @@ export async function POST(
   }
 
   // Check duplicate (corporate planning can submit per entity)
-  if (sessionToken) {
+  if (googleUser) {
+    if (type === "corporate") {
+      if (await hasSubmittedByOwner(surveyId, googleUser.sub, type, entity)) {
+        return NextResponse.json({ error: "この事業体には既に回答済みです。マイ回答から確認できます。" }, { status: 400 });
+      }
+    } else if (await hasSubmittedByOwner(surveyId, googleUser.sub, type)) {
+      return NextResponse.json({ error: "このGoogleアカウントでは既に回答済みです。マイ回答から確認できます。" }, { status: 400 });
+    }
+  } else if (sessionToken) {
     if (type === "corporate") {
       if (await hasSubmitted(surveyId, sessionToken, entity)) {
         return NextResponse.json({ error: "この事業体にはすでに回答済みです" }, { status: 400 });
@@ -73,6 +83,14 @@ export async function POST(
     respondentName,
     freeText,
     sessionToken,
+    owner: googleUser
+      ? {
+          provider: googleUser.provider,
+          subject: googleUser.sub,
+          email: googleUser.email,
+          name: googleUser.name,
+        }
+      : undefined,
     answers: answers.map((a: { questionId: number; score: number | null; skipReason?: string }) => ({
       questionId: a.questionId,
       score: a.score,

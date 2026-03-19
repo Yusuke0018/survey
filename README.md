@@ -6,7 +6,7 @@
 
 ### 対象ユーザー
 - **管理者（本部）**: サーベイの作成・管理・データ分析を行う
-- **スタッフ**: アンケートに回答する（匿名可）
+- **スタッフ**: Google ログインでアンケートに回答し、自分の過去回答を見返す
 - **院長/事業責任者**: 自己評価としてアンケートに回答する
 - **経営企画室**: 各事業体の状況認識をアンケートで回答する
 
@@ -25,7 +25,7 @@
 - **2種類のサーベイ**: クリニック向け（2者構造）と事業体向け（3者構造）を1つのシステムで統合管理
 - **永続DB対応**: ローカルは SQLite、Vercel 本番は Turso/libSQL で永続化
 - **即時分析**: データ投入と同時にダッシュボードで可視化
-- **匿名安全性**: 回答は匿名可。sessionTokenによる重複防止のみ
+- **本人追跡性と管理側の分離**: スタッフ回答は Google ログインの `sub` に紐づけて本人のみ再閲覧可能。管理画面は集計中心
 - **日本語ファースト**: UI・質問文・分析ラベルすべて日本語
 
 ### サーベイの2つのモード
@@ -141,8 +141,12 @@ CREATE TABLE responses (
   entity TEXT,                              -- 事業体名（事業体サーベイ用）
   respondent_name TEXT,                     -- 回答者名（任意）
   timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+  owner_provider TEXT,                      -- 'google' など
+  owner_subject TEXT,                       -- Google sub。本人再閲覧用
+  owner_email TEXT,                         -- ログイン時メール
+  owner_name TEXT,                          -- ログイン時表示名
   free_text TEXT,                           -- 自由記入
-  session_token TEXT                        -- 重複回答防止用UUID
+  session_token TEXT                        -- 非 Google 時の重複回答防止用UUID
 );
 ```
 
@@ -210,18 +214,20 @@ surveys (1) ──< director_responses (N) [レガシー]
 
 ### ロール構成
 
-| ロール | パスワード環境変数 | デフォルト値 | アクセス範囲 |
+| ロール | 認証方式 | 環境変数 | アクセス範囲 |
 |---|---|---|---|
-| admin | `ADMIN_PASSWORD` | `liberalarts` | 全ページ（ダッシュボード + 管理 + 回答） |
-| staff | `STAFF_PASSWORD` | `staff` | 回答ページのみ（`/respond/*`） |
+| admin | パスワード | `ADMIN_PASSWORD` | 全ページ（ダッシュボード + 管理 + 回答） |
+| staff | Google OAuth | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | 回答ページのみ（`/respond/*`） |
 
 ### 認証フロー
 
-1. ユーザーが `/login` でパスワード入力
-2. `POST /api/auth/login` がパスワード照合
-3. 成功時、2つのHTTP-only cookieをセット:
+1. 管理者は `/login` でパスワード入力、スタッフは Google ログインを開始
+2. 管理者は `POST /api/auth/login`、スタッフは `/api/auth/google/start` → `/api/auth/google/callback`
+3. 成功時、HTTP-only cookieをセット:
    - `survey_session`: `"active"` (有効期限7日)
    - `survey_role`: `"admin"` または `"staff"` (有効期限7日)
+   - `survey_provider`: `"admin"` または `"google"`
+   - Google ログイン時のみ `survey_google_sub` / `survey_google_email` / `survey_google_name`
 4. cookieは `httpOnly: true`, `sameSite: "lax"`, 本番環境では `secure: true`
 
 ### Middleware によるルート保護
@@ -470,8 +476,20 @@ surveys (1) ──< director_responses (N) [レガシー]
 #### `POST /api/auth/login`
 - **認証**: 不要
 - **リクエスト**: `{ "password": "string" }`
-- **レスポンス**: `{ "success": true, "role": "admin" | "staff" }` + Set-Cookie
+- **レスポンス**: `{ "success": true, "role": "admin" }` + Set-Cookie
 - **エラー**: `401 { "error": "パスワードが正しくありません" }`
+
+#### `GET /api/auth/google/start`
+- **認証**: 不要
+- **処理**: Google OAuth 開始。`callbackUrl` を受け取り、Google 認証画面へリダイレクト
+
+#### `GET /api/auth/google/callback`
+- **認証**: 不要
+- **処理**: Google ID トークンを検証し、staff セッション cookie を発行
+
+#### `GET /api/auth/me`
+- **認証**: 要セッション
+- **レスポンス**: `{ "authenticated": true, "role": "staff", "provider": "google", "user": { "sub": "...", "email": "...", "name": "..." } }`
 
 #### `POST /api/auth/logout`
 - **認証**: 不要
@@ -553,8 +571,17 @@ surveys (1) ──< director_responses (N) [レガシー]
   - 拠点/事業体が必須
   - 全回答の questionId が有効であること
   - スコアは1〜5（またはスキップ時null）
-  - sessionTokenによる重複チェック（経営企画室は事業体ごとに回答可）
+  - Google ログイン時は `owner_subject` による重複チェック、非 Google 時は `sessionToken` による重複チェック
+  - 経営企画室は事業体ごとに回答可
 - **レスポンス**: `{ "success": true, "responseId": 123 }`
+
+#### `GET /api/me/responses`
+- **認証**: Google ログイン staff
+- **レスポンス**: ログイン中ユーザー自身の回答一覧
+
+#### `GET /api/me/responses/[responseId]`
+- **認証**: Google ログイン staff
+- **レスポンス**: ログイン中ユーザー自身が送信した単一回答の詳細
 
 ### 11.5 CSVアップロードAPI
 
@@ -760,7 +787,8 @@ npm run seed:first-survey -- \
 | 変数名 | 説明 | デフォルト値 |
 |---|---|---|
 | `ADMIN_PASSWORD` | 管理者ログインパスワード | `liberalarts` |
-| `STAFF_PASSWORD` | スタッフログインパスワード | `staff` |
+| `GOOGLE_CLIENT_ID` | スタッフ向け Google OAuth クライアント ID | - |
+| `GOOGLE_CLIENT_SECRET` | スタッフ向け Google OAuth クライアントシークレット | - |
 | `TURSO_DATABASE_URL` | Vercel / 本番で使う libSQL 接続先 | - |
 | `TURSO_AUTH_TOKEN` | Turso 接続トークン | - |
 | `SQLITE_DB_PATH` | ローカル SQLite パスを上書きする場合に使用 | `data/survey.db` |
@@ -793,7 +821,7 @@ npm run dev
 
 ### ログイン
 - 管理者: パスワード `liberalarts` → ダッシュボード
-- スタッフ: パスワード `staff` → 回答ページ
+- スタッフ: Google ログイン → 回答ページ
 
 ### サーベイ作成の流れ
 
@@ -803,7 +831,7 @@ npm run dev
    - クリニック: 「デフォルト質問を読み込む」で15問セット
    - 事業体: API経由で各回答者タイプの質問を登録
 4. ステータスを「公開」に変更
-5. スタッフに `/respond` のURLとパスワードを共有
+5. スタッフに `/respond` のURLを共有し、Google ログインで回答してもらう
 
 ### 本番ビルド
 
@@ -815,6 +843,11 @@ npm start
 ### Vercel デプロイ
 
 Vercel 本番では `TURSO_DATABASE_URL` と `TURSO_AUTH_TOKEN` を設定し、Turso に永続化する。未設定のままでは `/tmp` の一時 DB にフォールバックし、データは保持されない。
+
+スタッフ向け Google ログインを使う場合は、Google Cloud Console で OAuth クライアントを作成し、以下のリダイレクト URI を登録したうえで `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` を Vercel に設定する。
+
+- ローカル: `http://localhost:3000/api/auth/google/callback`
+- 本番: `https://survey-rosy-seven.vercel.app/api/auth/google/callback`
 
 ---
 

@@ -130,6 +130,10 @@ async function migrate() {
           clinic TEXT NOT NULL DEFAULT '',
           entity TEXT,
           respondent_name TEXT,
+          owner_provider TEXT,
+          owner_subject TEXT,
+          owner_email TEXT,
+          owner_name TEXT,
           timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
           free_text TEXT,
           session_token TEXT
@@ -163,6 +167,10 @@ async function migrate() {
           clinic TEXT NOT NULL DEFAULT '',
           entity TEXT,
           respondent_name TEXT,
+          owner_provider TEXT,
+          owner_subject TEXT,
+          owner_email TEXT,
+          owner_name TEXT,
           timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
           free_text TEXT,
           session_token TEXT
@@ -172,6 +180,10 @@ async function migrate() {
   }
 
   await safeAddColumn("responses", "entity", "TEXT");
+  await safeAddColumn("responses", "owner_provider", "TEXT");
+  await safeAddColumn("responses", "owner_subject", "TEXT");
+  await safeAddColumn("responses", "owner_email", "TEXT");
+  await safeAddColumn("responses", "owner_name", "TEXT");
 
   await getClient().executeMultiple(`
     CREATE TABLE IF NOT EXISTS response_answers (
@@ -188,6 +200,7 @@ async function migrate() {
   await getClient().executeMultiple(`
     CREATE INDEX IF NOT EXISTS idx_responses_survey ON responses(survey_id);
     CREATE INDEX IF NOT EXISTS idx_responses_type ON responses(survey_id, type);
+    CREATE INDEX IF NOT EXISTS idx_responses_owner_subject ON responses(owner_subject);
     CREATE INDEX IF NOT EXISTS idx_response_answers_response ON response_answers(response_id);
     CREATE INDEX IF NOT EXISTS idx_question_templates_survey ON question_templates(survey_id);
   `);
@@ -436,13 +449,23 @@ export async function submitResponse(data: {
   respondentName?: string;
   freeText?: string;
   sessionToken?: string;
+  owner?: {
+    provider: string;
+    subject: string;
+    email: string;
+    name?: string | null;
+  };
   answers: Array<{ questionId: number; score: number | null; skipReason?: string | null }>;
 }) {
   return withTransaction(async (tx) => {
     const insertResponse = await tx.execute({
       sql: `
-        INSERT INTO responses (survey_id, type, clinic, entity, respondent_name, free_text, session_token)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO responses (
+          survey_id, type, clinic, entity, respondent_name,
+          owner_provider, owner_subject, owner_email, owner_name,
+          free_text, session_token
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `,
       args: [
         data.surveyId,
@@ -450,6 +473,10 @@ export async function submitResponse(data: {
         data.clinic || "",
         data.entity || null,
         data.respondentName || null,
+        data.owner?.provider || null,
+        data.owner?.subject || null,
+        data.owner?.email || null,
+        data.owner?.name || null,
         data.freeText || null,
         data.sessionToken || null,
       ],
@@ -484,6 +511,172 @@ export async function hasSubmitted(surveyId: number, sessionToken: string, entit
     [surveyId, sessionToken]
   );
   return (row?.cnt ?? 0) > 0;
+}
+
+export async function hasSubmittedByOwner(
+  surveyId: number,
+  ownerSubject: string,
+  type: string,
+  entity?: string
+): Promise<boolean> {
+  if (entity) {
+    const row = await queryOne<{ cnt: number }>(
+      "SELECT COUNT(*) as cnt FROM responses WHERE survey_id = ? AND owner_subject = ? AND type = ? AND entity = ?",
+      [surveyId, ownerSubject, type, entity]
+    );
+    return (row?.cnt ?? 0) > 0;
+  }
+
+  const row = await queryOne<{ cnt: number }>(
+    "SELECT COUNT(*) as cnt FROM responses WHERE survey_id = ? AND owner_subject = ? AND type = ?",
+    [surveyId, ownerSubject, type]
+  );
+  return (row?.cnt ?? 0) > 0;
+}
+
+export interface OwnedResponseSummary {
+  response_id: number;
+  survey_id: number;
+  survey_name: string;
+  survey_type: SurveyType;
+  conducted_at: string;
+  respondent_type: string;
+  org_unit: string;
+  timestamp: string | null;
+  avg_score: number | null;
+  free_text: string | null;
+  question_count: number;
+}
+
+export interface OwnedResponseDetail {
+  response_id: number;
+  survey_id: number;
+  survey_name: string;
+  survey_type: SurveyType;
+  conducted_at: string;
+  respondent_type: string;
+  org_unit: string;
+  timestamp: string | null;
+  free_text: string | null;
+  avg_score: number | null;
+  questions: Array<{
+    question_id: number;
+    num: number;
+    text: string;
+    area: string;
+    area_label: string;
+    score: number | null;
+    skip_reason: string | null;
+  }>;
+}
+
+export async function getOwnedResponseSummaries(ownerSubject: string) {
+  return queryAll<OwnedResponseSummary>(
+    `
+      SELECT
+        r.id as response_id,
+        s.id as survey_id,
+        s.name as survey_name,
+        s.survey_type,
+        s.conducted_at,
+        r.type as respondent_type,
+        CASE
+          WHEN r.entity IS NOT NULL AND r.entity != '' THEN r.entity
+          ELSE r.clinic
+        END as org_unit,
+        r.timestamp,
+        AVG(ra.score) as avg_score,
+        r.free_text,
+        COUNT(ra.id) as question_count
+      FROM responses r
+      JOIN surveys s ON s.id = r.survey_id
+      LEFT JOIN response_answers ra ON ra.response_id = r.id
+      WHERE r.owner_subject = ?
+      GROUP BY
+        r.id, s.id, s.name, s.survey_type, s.conducted_at,
+        r.type, r.entity, r.clinic, r.timestamp, r.free_text
+      ORDER BY COALESCE(r.timestamp, s.conducted_at) DESC, r.id DESC
+    `,
+    [ownerSubject]
+  );
+}
+
+export async function getOwnedResponseDetail(responseId: number, ownerSubject: string) {
+  const response = await queryOne<{
+    response_id: number;
+    survey_id: number;
+    survey_name: string;
+    survey_type: SurveyType;
+    conducted_at: string;
+    respondent_type: string;
+    org_unit: string;
+    timestamp: string | null;
+    free_text: string | null;
+    avg_score: number | null;
+  }>(
+    `
+      SELECT
+        r.id as response_id,
+        s.id as survey_id,
+        s.name as survey_name,
+        s.survey_type,
+        s.conducted_at,
+        r.type as respondent_type,
+        CASE
+          WHEN r.entity IS NOT NULL AND r.entity != '' THEN r.entity
+          ELSE r.clinic
+        END as org_unit,
+        r.timestamp,
+        r.free_text,
+        AVG(ra.score) as avg_score
+      FROM responses r
+      JOIN surveys s ON s.id = r.survey_id
+      LEFT JOIN response_answers ra ON ra.response_id = r.id
+      WHERE r.id = ? AND r.owner_subject = ?
+      GROUP BY
+        r.id, s.id, s.name, s.survey_type, s.conducted_at,
+        r.type, r.entity, r.clinic, r.timestamp, r.free_text
+    `,
+    [responseId, ownerSubject]
+  );
+
+  if (!response) return null;
+
+  const questions = await queryAll<{
+    question_id: number;
+    num: number;
+    text: string;
+    area: string;
+    area_label: string;
+    score: number | null;
+    skip_reason: string | null;
+  }>(
+    `
+      SELECT
+        qt.id as question_id,
+        qt.num,
+        CASE
+          WHEN qt.text IS NOT NULL AND qt.text != '' THEN qt.text
+          WHEN r.type = 'director' THEN qt.director_text
+          ELSE qt.staff_text
+        END as text,
+        qt.area,
+        qt.area_label,
+        ra.score,
+        ra.skip_reason
+      FROM response_answers ra
+      JOIN responses r ON r.id = ra.response_id
+      JOIN question_templates qt ON qt.id = ra.question_id
+      WHERE ra.response_id = ? AND r.owner_subject = ?
+      ORDER BY qt.num
+    `,
+    [responseId, ownerSubject]
+  );
+
+  return {
+    ...response,
+    questions,
+  } satisfies OwnedResponseDetail;
 }
 
 export async function getNewScoreAverages(surveyId: number, type: string, clinicOrEntity?: string) {

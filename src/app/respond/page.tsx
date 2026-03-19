@@ -10,9 +10,18 @@ interface ActiveSurvey {
   question_count: number;
 }
 
+interface AuthMe {
+  provider: "admin" | "google" | null;
+  user: {
+    email: string;
+    name: string | null;
+  } | null;
+}
+
 export default function RespondPage() {
   const [surveys, setSurveys] = useState<ActiveSurvey[]>([]);
   const [loading, setLoading] = useState(true);
+  const [authMe, setAuthMe] = useState<AuthMe | null>(null);
 
   useEffect(() => {
     fetch("/api/surveys/active")
@@ -21,6 +30,11 @@ export default function RespondPage() {
         setSurveys(data);
         setLoading(false);
       });
+
+    fetch("/api/auth/me")
+      .then((response) => response.json())
+      .then(setAuthMe)
+      .catch(() => setAuthMe(null));
   }, []);
 
   if (loading) {
@@ -38,6 +52,24 @@ export default function RespondPage() {
         <h1 className="text-xl font-bold text-[#111827] mb-2">アンケート回答</h1>
         <p className="text-sm text-[#6B7280]">回答可能なサーベイを選択してください</p>
       </div>
+
+      {authMe?.provider === "google" && (
+        <div className="mb-6 rounded-xl border border-[#DBEAFE] bg-[#EFF6FF] p-4">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-semibold text-[#1D4ED8]">
+                {authMe.user?.name || authMe.user?.email} としてログイン中
+              </p>
+              <p className="mt-1 text-xs text-[#475569]">
+                これからの回答は Google アカウントに紐づいて保存され、あとからマイ回答で見返せます。
+              </p>
+            </div>
+            <Link href="/respond/history" className="shrink-0 text-sm font-semibold text-[#2563EB] hover:underline">
+              マイ回答を見る
+            </Link>
+          </div>
+        </div>
+      )}
 
       {surveys.length === 0 ? (
         <div className="bg-white rounded-xl border border-[#E5E7EB] p-8 text-center shadow-sm">

@@ -1,9 +1,29 @@
 "use client";
 
+import Link from "next/link";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
+
+interface AuthMe {
+  role: "admin" | "staff" | null;
+  provider: "admin" | "google" | null;
+  user: {
+    sub: string;
+    email: string;
+    name: string | null;
+  } | null;
+}
 
 export default function RespondLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
+  const [authMe, setAuthMe] = useState<AuthMe | null>(null);
+
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((response) => response.json())
+      .then(setAuthMe)
+      .catch(() => setAuthMe(null));
+  }, []);
 
   const handleLogout = async () => {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -19,14 +39,28 @@ export default function RespondLayout({ children }: { children: React.ReactNode 
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
             </svg>
           </div>
-          <span className="text-[15px] font-bold text-[#10B981]">リベクリ サーベイ</span>
+          <div>
+            <span className="text-[15px] font-bold text-[#10B981]">リベクリ サーベイ</span>
+            {authMe?.provider === "google" && (
+              <p className="text-[11px] text-[#64748B]">
+                {authMe.user?.name || authMe.user?.email} としてログイン中
+              </p>
+            )}
+          </div>
         </div>
-        <button
-          onClick={handleLogout}
-          className="text-sm text-[#6B7280] hover:text-[#DC2626] transition-colors"
-        >
-          ログアウト
-        </button>
+        <div className="flex items-center gap-4">
+          {authMe?.provider === "google" && (
+            <Link href="/respond/history" className="text-sm text-[#2563EB] hover:underline">
+              マイ回答
+            </Link>
+          )}
+          <button
+            onClick={handleLogout}
+            className="text-sm text-[#6B7280] hover:text-[#DC2626] transition-colors"
+          >
+            ログアウト
+          </button>
+        </div>
       </header>
       <main className="max-w-2xl mx-auto py-8 px-4">
         {children}

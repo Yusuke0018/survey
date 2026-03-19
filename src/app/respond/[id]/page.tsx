@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
+import Link from "next/link";
 import { CLINIC_GROUPS } from "@/lib/clinics";
 import { ENTITY_GROUPS } from "@/lib/entities";
 
@@ -21,6 +22,14 @@ interface Question {
 
 interface SurveyMeta {
   survey_type: string;
+}
+
+interface AuthMe {
+  provider: "admin" | "google" | null;
+  user: {
+    email: string;
+    name: string | null;
+  } | null;
 }
 
 type RespondentType = "staff" | "director" | "manager" | "corporate";
@@ -43,6 +52,7 @@ export default function RespondSurveyPage() {
   const params = useParams();
   const surveyId = params.id as string;
   const [surveyMeta, setSurveyMeta] = useState<SurveyMeta | null>(null);
+  const [authMe, setAuthMe] = useState<AuthMe | null>(null);
   const [respondentType, setRespondentType] = useState<RespondentType>("staff");
   const [questions, setQuestions] = useState<Question[]>([]);
   const [orgUnit, setOrgUnit] = useState("");
@@ -64,6 +74,11 @@ export default function RespondSurveyPage() {
           setQuestions(data.questions);
         }
       });
+
+    fetch("/api/auth/me")
+      .then((response) => response.json())
+      .then(setAuthMe)
+      .catch(() => setAuthMe(null));
   }, [surveyId]);
 
   useEffect(() => {
@@ -179,10 +194,18 @@ export default function RespondSurveyPage() {
         </div>
         <h2 className="text-lg font-bold text-[#111827] mb-2">回答を送信しました</h2>
         <p className="text-sm text-[#6B7280]">ご協力ありがとうございました</p>
+        {authMe?.provider === "google" && (
+          <Link
+            href="/respond/history"
+            className="mt-4 inline-flex rounded-xl border border-[#D1D5DB] px-5 py-2.5 text-sm font-semibold text-[#111827] hover:bg-[#F8FAFC]"
+          >
+            マイ回答を見る
+          </Link>
+        )}
         {isJigyotai && respondentType === "corporate" && (
           <button
             onClick={() => { setSubmitted(false); setOrgUnit(""); setAnswers({}); setSkips({}); setFreeText(""); }}
-            className="mt-4 px-6 py-2.5 bg-[#10B981] text-white rounded-xl text-sm font-semibold hover:bg-[#059669]"
+            className="mt-4 ml-3 px-6 py-2.5 bg-[#10B981] text-white rounded-xl text-sm font-semibold hover:bg-[#059669]"
           >
             別の事業体について回答する
           </button>
@@ -224,6 +247,24 @@ export default function RespondSurveyPage() {
 
   return (
     <div>
+      {authMe?.provider === "google" && (
+        <div className="bg-[#EFF6FF] border border-[#DBEAFE] rounded-xl p-4 shadow-sm mb-6">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <p className="text-sm font-semibold text-[#1D4ED8]">
+                {authMe.user?.name || authMe.user?.email} としてログイン中
+              </p>
+              <p className="mt-1 text-xs text-[#475569]">
+                回答は Google アカウントに紐づいて保存されます。氏名欄を空欄にしても、本人だけはマイ回答から見返せます。
+              </p>
+            </div>
+            <Link href="/respond/history" className="shrink-0 text-sm font-semibold text-[#2563EB] hover:underline">
+              マイ回答
+            </Link>
+          </div>
+        </div>
+      )}
+
       {/* Respondent Type Selector */}
       <div className="bg-white rounded-xl border border-[#E5E7EB] p-5 shadow-sm mb-6">
         <label className="block text-sm font-medium text-[#374151] mb-3">回答者タイプ</label>
