@@ -21,7 +21,12 @@ export default function LoginPage() {
     });
 
     if (res.ok) {
-      router.push("/dashboard");
+      const data = await res.json();
+      if (data.role === "admin") {
+        router.push("/dashboard");
+      } else {
+        router.push("/respond");
+      }
     } else {
       const data = await res.json();
       setError(data.error || "ログインに失敗しました");
@@ -30,39 +35,50 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[#FAFBFC]">
+    <div className="min-h-screen flex items-center justify-center bg-[#F8FAFB]">
       <div className="w-full max-w-sm">
-        <div className="bg-white rounded-xl shadow-sm border border-[#E2E8F0] p-8">
+        <div className="bg-white rounded-2xl shadow-lg border border-[#E5E7EB] p-8">
           <div className="text-center mb-8">
-            <h1 className="text-2xl font-bold text-[#1E293B]">リベクリ サーベイ</h1>
-            <p className="text-sm text-[#64748B] mt-2">スタッフ満足度ダッシュボード</p>
+            <div className="w-14 h-14 bg-[#10B981] rounded-xl flex items-center justify-center mx-auto mb-4">
+              <svg className="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+              </svg>
+            </div>
+            <h1 className="text-xl font-bold text-[#111827]">リベクリ サーベイ</h1>
+            <p className="text-sm text-[#6B7280] mt-1">スタッフ満足度調査システム</p>
           </div>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
+          <form onSubmit={handleSubmit} className="space-y-5">
             <div>
-              <label className="block text-sm font-medium text-[#1E293B] mb-1.5">パスワード</label>
+              <label className="block text-sm font-medium text-[#374151] mb-1.5">パスワード</label>
               <input
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-3 py-2.5 border border-[#E2E8F0] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20 focus:border-[#2563EB]"
+                className="w-full px-4 py-3 border border-[#D1D5DB] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#10B981]/30 focus:border-[#10B981] transition-all"
                 placeholder="パスワードを入力"
                 autoFocus
               />
             </div>
 
             {error && (
-              <p className="text-sm text-[#991B1B] bg-[#FEE2E2] px-3 py-2 rounded-lg">{error}</p>
+              <p className="text-sm text-[#DC2626] bg-[#FEF2F2] px-4 py-2.5 rounded-xl">{error}</p>
             )}
 
             <button
               type="submit"
               disabled={loading || !password}
-              className="w-full py-2.5 bg-[#2563EB] text-white rounded-lg text-sm font-semibold hover:bg-[#1D4ED8] transition-colors disabled:opacity-50"
+              className="w-full py-3 bg-[#10B981] text-white rounded-xl text-sm font-semibold hover:bg-[#059669] transition-colors disabled:opacity-50 shadow-sm"
             >
               {loading ? "ログイン中..." : "ログイン"}
             </button>
           </form>
+
+          <div className="mt-6 pt-5 border-t border-[#F3F4F6]">
+            <p className="text-xs text-[#9CA3AF] text-center">
+              本部用 / スタッフ用で異なるパスワードを使用します
+            </p>
+          </div>
         </div>
       </div>
     </div>

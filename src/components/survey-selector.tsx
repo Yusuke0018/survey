@@ -39,8 +39,8 @@ export function SurveySelector() {
 
   if (surveys.length === 0) {
     return (
-      <div className="text-sm text-muted-foreground">
-        サーベイデータがありません。<a href="/admin" className="text-[#2563EB] underline">データ管理</a>からアップロードしてください。
+      <div className="text-sm text-[#9CA3AF]">
+        サーベイデータがありません。<a href="/admin" className="text-[#10B981] underline">データ管理</a>からアップロードしてください。
       </div>
     );
   }
@@ -49,7 +49,7 @@ export function SurveySelector() {
     <select
       value={selected || ""}
       onChange={handleChange}
-      className="border border-[#E2E8F0] rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#2563EB]/20"
+      className="border border-[#D1D5DB] rounded-xl px-4 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#10B981]/30 focus:border-[#10B981]"
     >
       {surveys.map((s) => (
         <option key={s.id} value={s.id}>
