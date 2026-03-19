@@ -12,7 +12,6 @@ import {
   Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis,
   ResponsiveContainer, Tooltip, BarChart, Bar, XAxis, YAxis, CartesianGrid, Legend, Cell, ReferenceLine,
 } from "recharts";
-import type { AreaKey } from "@/lib/questions";
 
 interface ClinicDetail {
   clinic: string;
@@ -23,12 +22,12 @@ interface ClinicDetail {
   lowest: { num: number; score: number };
   questionScores: Array<{
     id: string; num: number; text: string; shortLabel: string;
-    area: AreaKey; areaLabel: string; areaColor: string;
+    area: string; areaLabel: string; areaColor: string;
     clinicScore: number | null; globalScore: number | null; diff: number | null;
     directorScore: number | null;
   }>;
   areaAverages: Array<{
-    area: AreaKey; label: string; color: string;
+    area: string; label: string; color: string;
     clinicScore: number; globalScore: number;
   }>;
   responses: Array<{
@@ -210,7 +209,7 @@ export default function ClinicDetailPage() {
           return (
             <div key={area} className="mb-5">
               <div className="flex items-center gap-2 mb-2">
-                <AreaBadge area={area as AreaKey} />
+                <AreaBadge area={area} />
                 <span className="text-xs text-[#64748B]">
                   平均 {areaAvg?.clinicScore.toFixed(2)}
                 </span>

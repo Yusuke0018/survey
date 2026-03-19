@@ -10,14 +10,13 @@ import {
   Radar, RadarChart, PolarGrid, PolarAngleAxis, ResponsiveContainer,
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell,
 } from "recharts";
-import type { AreaKey } from "@/lib/questions";
 
 interface ClinicData {
   clinic: string;
   count: number;
   hasDirector: boolean;
   overallAvg: number;
-  areaAverages: Array<{ area: AreaKey; label: string; score: number }>;
+  areaAverages: Array<{ area: string; label: string; score: number }>;
   alertItems: Array<{ qNum: number; score: number; label: string }>;
 }
 

@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
-import { getSurvey, insertStaffResponses } from "@/lib/db";
-import { parseStaffCSV } from "@/lib/csv-parser";
+import { getSurvey, getQuestionTemplates, submitResponse, execute } from "@/lib/db";
+import { parseStaffCSVDynamic } from "@/lib/csv-parser";
+import type { QuestionDef } from "@/lib/csv-parser";
 import { getStorageWriteGuardResponse } from "@/lib/storage-mode";
 
 export async function POST(
@@ -32,23 +33,50 @@ export async function POST(
   const buffer = await file.arrayBuffer();
   const utf8Text = new TextDecoder("utf-8").decode(buffer);
 
-  // Check if UTF-8 decode produced replacement characters (indicates wrong encoding)
   if (utf8Text.includes("\uFFFD")) {
     text = new TextDecoder("shift_jis").decode(buffer);
   } else {
     text = utf8Text;
   }
 
-  const result = parseStaffCSV(text, surveyId);
+  // Fetch question templates for this survey (clinic questions only: respondent_type is null)
+  const templates = await getQuestionTemplates(surveyId);
+  const clinicTemplates = templates.filter((t) => t.respondent_type === null);
 
-  if (result.errors.length > 0 && result.rows.length === 0) {
+  const questions: QuestionDef[] = clinicTemplates.map((t) => ({
+    templateId: t.id,
+    num: t.num,
+    staffText: t.staff_text,
+    directorText: t.director_text,
+  }));
+
+  const result = parseStaffCSVDynamic(text, surveyId, questions);
+
+  if (result.errors.length > 0 && result.responses.length === 0) {
     return NextResponse.json({ error: result.errors.join("; ") }, { status: 400 });
   }
 
-  const count = await insertStaffResponses(result.rows, { replaceExisting: true });
+  // Delete existing staff responses for this survey (replace mode)
+  await execute("DELETE FROM responses WHERE survey_id = ? AND type = 'staff' AND entity IS NULL", [surveyId]);
+
+  // Insert via submitResponse
+  let count = 0;
+  for (const resp of result.responses) {
+    await submitResponse({
+      surveyId,
+      type: "staff",
+      clinic: resp.clinic,
+      respondentName: resp.respondentName ?? undefined,
+      freeText: resp.freeText ?? undefined,
+      answers: resp.answers,
+    });
+    count++;
+  }
+
   return NextResponse.json({
     count,
     matchedQuestions: result.matchedQuestions,
+    totalQuestions: result.totalQuestions,
     totalRows: result.totalRows,
     mode: "replace",
     warnings: result.errors,

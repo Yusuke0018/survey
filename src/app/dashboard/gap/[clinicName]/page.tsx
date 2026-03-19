@@ -18,13 +18,12 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import type { AreaKey } from "@/lib/questions";
 
 interface GapItem {
   id: string;
   num: number;
   shortLabel: string;
-  area: AreaKey;
+  area: string;
   areaLabel: string;
   staffScore: number | null;
   directorScore: number | null;

@@ -10,7 +10,6 @@ import {
   Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer, Tooltip,
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Cell,
 } from "recharts";
-import type { AreaKey } from "@/lib/questions";
 
 // ==================== Clinic Types ====================
 interface ClinicSummary {
@@ -25,10 +24,10 @@ interface ClinicSummary {
 interface ClinicScoreData {
   scores: Array<{
     id: string; num: number; text: string; shortLabel: string;
-    area: AreaKey; areaLabel: string; areaColor: string; score: number | null;
+    area: string; areaLabel: string; areaColor: string; score: number | null;
   }>;
   areaAverages: Array<{
-    area: AreaKey; label: string; color: string; score: number;
+    area: string; label: string; color: string; score: number;
   }>;
 }
 
@@ -442,7 +441,7 @@ export default function DashboardPage() {
           {Object.entries(grouped).map(([area, questions]) => (
             <div key={area} className="mb-4">
               <div className="mb-2">
-                <AreaBadge area={area as AreaKey} />
+                <AreaBadge area={area} />
               </div>
               {questions.map((q) => (
                 <div

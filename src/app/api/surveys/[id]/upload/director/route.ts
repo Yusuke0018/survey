@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
-import { getSurvey, insertDirectorResponses } from "@/lib/db";
-import { parseDirectorCSV } from "@/lib/csv-parser";
+import { getSurvey, getQuestionTemplates, submitResponse, execute } from "@/lib/db";
+import { parseDirectorCSVDynamic } from "@/lib/csv-parser";
+import type { QuestionDef } from "@/lib/csv-parser";
 import { getStorageWriteGuardResponse } from "@/lib/storage-mode";
 
 export async function POST(
@@ -38,16 +39,44 @@ export async function POST(
     text = utf8Text;
   }
 
-  const result = parseDirectorCSV(text, surveyId);
+  // Fetch question templates for this survey (clinic questions only: respondent_type is null)
+  const templates = await getQuestionTemplates(surveyId);
+  const clinicTemplates = templates.filter((t) => t.respondent_type === null);
 
-  if (result.errors.length > 0 && result.rows.length === 0) {
+  const questions: QuestionDef[] = clinicTemplates.map((t) => ({
+    templateId: t.id,
+    num: t.num,
+    staffText: t.staff_text,
+    directorText: t.director_text,
+  }));
+
+  const result = parseDirectorCSVDynamic(text, surveyId, questions);
+
+  if (result.errors.length > 0 && result.responses.length === 0) {
     return NextResponse.json({ error: result.errors.join("; ") }, { status: 400 });
   }
 
-  const count = await insertDirectorResponses(result.rows, { replaceExisting: true });
+  // Delete existing director responses for this survey (replace mode)
+  await execute("DELETE FROM responses WHERE survey_id = ? AND type = 'director' AND entity IS NULL", [surveyId]);
+
+  // Insert via submitResponse
+  let count = 0;
+  for (const resp of result.responses) {
+    await submitResponse({
+      surveyId,
+      type: "director",
+      clinic: resp.clinic,
+      respondentName: resp.respondentName ?? undefined,
+      freeText: resp.freeText ?? undefined,
+      answers: resp.answers,
+    });
+    count++;
+  }
+
   return NextResponse.json({
     count,
     matchedQuestions: result.matchedQuestions,
+    totalQuestions: result.totalQuestions,
     totalRows: result.totalRows,
     mode: "replace",
     warnings: result.errors,

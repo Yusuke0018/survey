@@ -8,6 +8,31 @@ interface ParseResult {
   errors: string[];
 }
 
+// --- Dynamic question support ---
+
+export interface QuestionDef {
+  templateId: number;
+  num: number;
+  staffText: string;
+  directorText: string;
+}
+
+export interface ParsedCSVResponse {
+  timestamp: string | null;
+  clinic: string;
+  respondentName: string | null;
+  freeText: string | null;
+  answers: Array<{ questionId: number; score: number | null }>;
+}
+
+export interface DynamicParseResult {
+  responses: ParsedCSVResponse[];
+  matchedQuestions: number;
+  totalQuestions: number;
+  totalRows: number;
+  errors: string[];
+}
+
 function matchQuestionColumn(header: string): number | null {
   const trimmed = header.trim();
   for (const q of QUESTIONS) {
@@ -196,4 +221,153 @@ export function parseDirectorCSV(csvText: string, surveyId: number): ParseResult
     delete (row as Partial<ResponseRow>).respondent_name;
   }
   return result;
+}
+
+// --- Dynamic question functions ---
+
+function matchQuestionColumnDynamic(header: string, questions: QuestionDef[]): number | null {
+  const trimmed = header.trim();
+  for (const q of questions) {
+    const staffPrefix = q.staffText.substring(0, 20);
+    const directorPrefix = q.directorText.substring(0, 20);
+    if (
+      (staffPrefix && trimmed.includes(staffPrefix)) ||
+      (directorPrefix && trimmed.includes(directorPrefix))
+    ) {
+      return q.templateId;
+    }
+  }
+  return null;
+}
+
+function parseDynamicCSVInternal(
+  csvText: string,
+  questions: QuestionDef[],
+  includeRespondentName: boolean
+): DynamicParseResult {
+  csvText = cleanCSVText(csvText);
+  const lines = splitCSVLines(csvText);
+  if (lines.length < 2) {
+    return {
+      responses: [],
+      matchedQuestions: 0,
+      totalQuestions: questions.length,
+      totalRows: 0,
+      errors: ["CSVが空またはヘッダーのみです"],
+    };
+  }
+
+  const headers = parseCSVLine(lines[0]);
+
+  // Map columns to template IDs
+  const columnMap: Record<number, number> = {}; // colIndex -> templateId
+  let timestampCol = -1;
+  let clinicCol = -1;
+  let nameCol = -1;
+  let freeTextCol = -1;
+
+  for (let i = 0; i < headers.length; i++) {
+    const h = headers[i].trim();
+
+    if (h.includes("タイムスタンプ") || h.toLowerCase().includes("timestamp")) {
+      timestampCol = i;
+      continue;
+    }
+
+    if (h === "所属" || h === "所属拠点" || h === "拠点" || h === "クリニック" || h === "クリニック名") {
+      clinicCol = i;
+      continue;
+    }
+
+    if (h.includes("氏名") || h.includes("名前") || h.includes("お名前")) {
+      nameCol = i;
+      continue;
+    }
+
+    if (h.includes("自由") || h.includes("コメント") || h.includes("ご意見") || h.includes("その他") || h.includes("ご自身の") || h.includes("職場環境")) {
+      freeTextCol = i;
+      continue;
+    }
+
+    const templateId = matchQuestionColumnDynamic(h, questions);
+    if (templateId !== null) {
+      columnMap[i] = templateId;
+    }
+  }
+
+  const matchedQuestions = Object.keys(columnMap).length;
+  const errors: string[] = [];
+
+  if (matchedQuestions < questions.length) {
+    errors.push(`${questions.length}問中${matchedQuestions}問のみマッチしました。CSVのヘッダーを確認してください。`);
+  }
+
+  if (clinicCol === -1) {
+    const headerSample = headers.slice(0, 5).map((h, i) => `[${i}]"${h.trim().substring(0, 20)}"`).join(", ");
+    errors.push(`所属拠点のカラムが見つかりません（ヘッダー先頭: ${headerSample}）`);
+    return { responses: [], matchedQuestions, totalQuestions: questions.length, totalRows: 0, errors };
+  }
+
+  const responses: ParsedCSVResponse[] = [];
+
+  for (let i = 1; i < lines.length; i++) {
+    const cols = parseCSVLine(lines[i]);
+    if (cols.length < 2) continue;
+
+    const clinic = cols[clinicCol]?.trim();
+    if (!clinic) continue;
+
+    const answers: Array<{ questionId: number; score: number | null }> = [];
+    for (const [colIdx, templateId] of Object.entries(columnMap)) {
+      const val = cols[parseInt(colIdx)]?.trim();
+      const score = extractScore(val || "");
+      answers.push({ questionId: templateId, score });
+    }
+
+    responses.push({
+      timestamp: timestampCol >= 0 ? cols[timestampCol]?.trim() || null : null,
+      clinic,
+      respondentName: includeRespondentName && nameCol >= 0 ? cols[nameCol]?.trim() || null : null,
+      freeText: freeTextCol >= 0 ? cols[freeTextCol]?.trim() || null : null,
+      answers,
+    });
+  }
+
+  return { responses, matchedQuestions, totalQuestions: questions.length, totalRows: responses.length, errors };
+}
+
+export function parseStaffCSVDynamic(
+  csvText: string,
+  surveyId: number,
+  questions: QuestionDef[]
+): DynamicParseResult {
+  // Fall back to legacy QUESTIONS-based matching if no templates provided
+  if (questions.length === 0) {
+    const fallbackQuestions: QuestionDef[] = QUESTIONS.map((q) => ({
+      templateId: q.num,
+      num: q.num,
+      staffText: q.staffText,
+      directorText: q.directorText,
+    }));
+    return parseDynamicCSVInternal(csvText, fallbackQuestions, true);
+  }
+  return parseDynamicCSVInternal(csvText, questions, true);
+}
+
+export function parseDirectorCSVDynamic(
+  csvText: string,
+  surveyId: number,
+  questions: QuestionDef[]
+): DynamicParseResult {
+  // Fall back to legacy QUESTIONS-based matching if no templates provided
+  if (questions.length === 0) {
+    const fallbackQuestions: QuestionDef[] = QUESTIONS.map((q) => ({
+      templateId: q.num,
+      num: q.num,
+      staffText: q.staffText,
+      directorText: q.directorText,
+    }));
+    return parseDynamicCSVInternal(csvText, fallbackQuestions, false);
+  }
+  return parseDynamicCSVInternal(csvText, questions, false);
 }
