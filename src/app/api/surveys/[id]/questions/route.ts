@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getQuestionTemplates, upsertQuestionTemplates, getSurvey } from "@/lib/db";
+import { getQuestionTemplates, upsertQuestionTemplates, upsertJigyotaiQuestions, getSurvey } from "@/lib/db";
 import { requireAdmin } from "@/lib/auth";
 
 export async function GET(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
@@ -12,8 +12,10 @@ export async function GET(
   if (!survey) {
     return NextResponse.json({ error: "Survey not found" }, { status: 404 });
   }
-  const questions = getQuestionTemplates(surveyId);
-  return NextResponse.json(questions);
+
+  const respondentType = request.nextUrl.searchParams.get("respondentType");
+  const questions = getQuestionTemplates(surveyId, respondentType || undefined);
+  return NextResponse.json({ survey_type: survey.survey_type, questions });
 }
 
 export async function PUT(
@@ -30,7 +32,15 @@ export async function PUT(
     return NextResponse.json({ error: "Survey not found" }, { status: 404 });
   }
 
-  const { questions } = await request.json();
-  upsertQuestionTemplates(surveyId, questions);
-  return NextResponse.json({ success: true, count: questions.length });
+  const body = await request.json();
+
+  if (survey.survey_type === "jigyotai" && body.respondent_type) {
+    // Save questions for a specific respondent type
+    upsertJigyotaiQuestions(surveyId, body.respondent_type, body.questions);
+    return NextResponse.json({ success: true, count: body.questions.length });
+  }
+
+  // Clinic-style save (all questions at once)
+  upsertQuestionTemplates(surveyId, body.questions);
+  return NextResponse.json({ success: true, count: body.questions.length });
 }

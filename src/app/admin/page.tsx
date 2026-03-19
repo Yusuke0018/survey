@@ -9,10 +9,13 @@ interface Survey {
   conducted_at: string;
   created_at: string;
   status: string;
+  survey_type: string;
   legacy_staff_count: number;
   legacy_director_count: number;
   new_staff_count: number;
   new_director_count: number;
+  new_manager_count: number;
+  new_corporate_count: number;
   question_count: number;
 }
 
@@ -20,6 +23,7 @@ export default function AdminPage() {
   const [surveys, setSurveys] = useState<Survey[]>([]);
   const [name, setName] = useState("");
   const [conductedAt, setConductedAt] = useState("");
+  const [surveyType, setSurveyType] = useState<"clinic" | "jigyotai">("clinic");
   const [creating, setCreating] = useState(false);
 
   // Upload states
@@ -40,7 +44,7 @@ export default function AdminPage() {
     const res = await fetch("/api/surveys", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name, conducted_at: conductedAt }),
+      body: JSON.stringify({ name, conducted_at: conductedAt, survey_type: surveyType }),
     });
     if (res.ok) {
       setName("");
@@ -107,7 +111,18 @@ export default function AdminPage() {
       {/* Create Survey */}
       <div className="bg-white rounded-xl border border-[#E5E7EB] p-5 shadow-sm mb-8">
         <h3 className="text-sm font-semibold text-[#111827] mb-4">新規サーベイ作成</h3>
-        <form onSubmit={handleCreate} className="flex items-end gap-4">
+        <form onSubmit={handleCreate} className="flex items-end gap-4 flex-wrap">
+          <div>
+            <label className="block text-xs text-[#6B7280] mb-1.5">タイプ</label>
+            <select
+              value={surveyType}
+              onChange={(e) => setSurveyType(e.target.value as "clinic" | "jigyotai")}
+              className="border border-[#D1D5DB] rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#10B981]/30 focus:border-[#10B981] bg-white"
+            >
+              <option value="clinic">クリニック</option>
+              <option value="jigyotai">事業体</option>
+            </select>
+          </div>
           <div className="flex-1">
             <label className="block text-xs text-[#6B7280] mb-1.5">サーベイ名</label>
             <input
@@ -155,11 +170,26 @@ export default function AdminPage() {
               <tr key={s.id} className="border-b border-[#F3F4F6] hover:bg-[#F9FAFB] transition-colors">
                 <td className="px-5 py-3 font-medium text-[#111827]">{s.name}</td>
                 <td className="px-5 py-3 text-[#6B7280]">{s.conducted_at}</td>
-                <td className="px-5 py-3 text-center">{getStatusBadge(s.status)}</td>
+                <td className="px-5 py-3 text-center">
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium mr-1 ${
+                    s.survey_type === "jigyotai" ? "bg-[#EDE9FE] text-[#7C3AED]" : "bg-[#DBEAFE] text-[#2563EB]"
+                  }`}>
+                    {s.survey_type === "jigyotai" ? "事業体" : "クリニック"}
+                  </span>
+                  {getStatusBadge(s.status)}
+                </td>
                 <td className="px-5 py-3 text-center text-[#374151]">{s.question_count}問</td>
                 <td className="px-5 py-3 text-center text-[#374151]">
-                  {s.legacy_staff_count + s.new_staff_count}件
-                  <span className="text-[#9CA3AF] ml-1">(院長: {s.legacy_director_count + s.new_director_count})</span>
+                  {s.survey_type === "jigyotai" ? (
+                    <>
+                      S:{s.new_staff_count} M:{s.new_manager_count} C:{s.new_corporate_count}
+                    </>
+                  ) : (
+                    <>
+                      {s.legacy_staff_count + s.new_staff_count}件
+                      <span className="text-[#9CA3AF] ml-1">(院長: {s.legacy_director_count + s.new_director_count})</span>
+                    </>
+                  )}
                 </td>
                 <td className="px-5 py-3 text-right">
                   <div className="flex justify-end gap-2">
