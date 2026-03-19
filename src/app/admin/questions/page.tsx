@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { QUESTIONS } from "@/lib/questions";
 import { getJigyotaiQuestions, type RespondentType } from "@/lib/jigyotai-questions";
@@ -25,6 +25,13 @@ interface JigyotaiQuestion {
   skip_options: string | null;
   question_key: string;
   compare_key: string | null;
+}
+
+interface Survey {
+  id: number;
+  name: string;
+  conducted_at: string;
+  survey_type: string;
 }
 
 const DEFAULT_AREAS = [
@@ -68,6 +75,22 @@ function getDefaultJigyotaiCompareKey(
   return null;
 }
 
+function ArrowUpIcon() {
+  return (
+    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 15l7-7 7 7" />
+    </svg>
+  );
+}
+
+function ArrowDownIcon() {
+  return (
+    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+    </svg>
+  );
+}
+
 function QuestionsEditor() {
   const searchParams = useSearchParams();
   const surveyId = searchParams.get("surveyId");
@@ -79,6 +102,26 @@ function QuestionsEditor() {
   const [saved, setSaved] = useState(false);
   const [loading, setLoading] = useState(true);
 
+  // Phase 4: new state
+  const [allSurveys, setAllSurveys] = useState<Survey[]>([]);
+  const [questionKeySuggestions, setQuestionKeySuggestions] = useState<string[]>([]);
+  const [showCopyModal, setShowCopyModal] = useState(false);
+  const [copyLoading, setCopyLoading] = useState(false);
+  const [showPreview, setShowPreview] = useState(false);
+  const [originalClinicQuestions, setOriginalClinicQuestions] = useState<ClinicQuestion[]>([]);
+  const [originalJigyotaiQuestions, setOriginalJigyotaiQuestions] = useState<JigyotaiQuestion[]>([]);
+
+  // Load surveys list and question_key suggestions
+  useEffect(() => {
+    fetch("/api/surveys")
+      .then((r) => r.json())
+      .then((data) => { if (Array.isArray(data)) setAllSurveys(data); });
+    fetch("/api/surveys/question-keys")
+      .then((r) => r.json())
+      .then((data) => { if (Array.isArray(data)) setQuestionKeySuggestions(data); })
+      .catch(() => {});
+  }, []);
+
   useEffect(() => {
     if (!surveyId) return;
 
@@ -88,6 +131,36 @@ function QuestionsEditor() {
         setSurveyType(survey.survey_type);
       });
   }, [surveyId]);
+
+  const loadQuestionsFromData = useCallback((questions: ClinicQuestion[] | JigyotaiQuestion[], type: "clinic" | "jigyotai") => {
+    if (type === "clinic") {
+      const mapped = (questions as ClinicQuestion[]).map((question: ClinicQuestion) => ({
+        num: question.num,
+        staff_text: question.staff_text,
+        director_text: question.director_text,
+        area: question.area,
+        area_label: question.area_label,
+        question_key: question.question_key || getDefaultClinicQuestionKey(question.num),
+        compare_key: question.compare_key || getDefaultClinicCompareKey(question.num, question.question_key || getDefaultClinicQuestionKey(question.num)),
+      }));
+      setClinicQuestions(mapped);
+      setOriginalClinicQuestions(mapped);
+    } else {
+      const mapped = (questions as JigyotaiQuestion[]).map((question: JigyotaiQuestion) => ({
+        num: question.num,
+        text: question.text ?? "",
+        area: question.area,
+        short_label: question.short_label ?? "",
+        core_id: question.core_id,
+        scale_type: question.scale_type,
+        skip_options: question.skip_options,
+        question_key: question.question_key || getDefaultJigyotaiQuestionKey(respondentType, question.num),
+        compare_key: question.compare_key || getDefaultJigyotaiCompareKey(respondentType, question.num, question.core_id),
+      }));
+      setJigyotaiQuestions(mapped);
+      setOriginalJigyotaiQuestions(mapped);
+    }
+  }, [respondentType]);
 
   useEffect(() => {
     if (!surveyId || !surveyType) return;
@@ -100,36 +173,14 @@ function QuestionsEditor() {
       .then((r) => r.json())
       .then((data) => {
         const questions = Array.isArray(data.questions) ? data.questions : [];
-        if (surveyType === "clinic") {
-          setClinicQuestions(questions.map((question: ClinicQuestion) => ({
-            num: question.num,
-            staff_text: question.staff_text,
-            director_text: question.director_text,
-            area: question.area,
-            area_label: question.area_label,
-            question_key: question.question_key || getDefaultClinicQuestionKey(question.num),
-            compare_key: question.compare_key || getDefaultClinicCompareKey(question.num, question.question_key || getDefaultClinicQuestionKey(question.num)),
-          })));
-        } else {
-          setJigyotaiQuestions(questions.map((question: JigyotaiQuestion) => ({
-            num: question.num,
-            text: question.text ?? "",
-            area: question.area,
-            short_label: question.short_label ?? "",
-            core_id: question.core_id,
-            scale_type: question.scale_type,
-            skip_options: question.skip_options,
-            question_key: question.question_key || getDefaultJigyotaiQuestionKey(respondentType, question.num),
-            compare_key: question.compare_key || getDefaultJigyotaiCompareKey(respondentType, question.num, question.core_id),
-          })));
-        }
+        loadQuestionsFromData(questions, surveyType);
         setLoading(false);
       });
-  }, [surveyId, surveyType, respondentType]);
+  }, [surveyId, surveyType, respondentType, loadQuestionsFromData]);
 
   const loadDefaults = () => {
     if (surveyType === "clinic") {
-      setClinicQuestions(QUESTIONS.map((question) => ({
+      const defaults = QUESTIONS.map((question) => ({
         num: question.num,
         staff_text: question.staffText,
         director_text: question.directorText,
@@ -137,7 +188,8 @@ function QuestionsEditor() {
         area_label: question.areaLabel,
         question_key: question.questionKey,
         compare_key: question.compareKey,
-      })));
+      }));
+      setClinicQuestions(defaults);
       return;
     }
 
@@ -152,6 +204,47 @@ function QuestionsEditor() {
       question_key: getDefaultJigyotaiQuestionKey(respondentType, question.id),
       compare_key: getDefaultJigyotaiCompareKey(respondentType, question.id, question.coreId),
     })));
+  };
+
+  // Copy from another survey
+  const copyFromSurvey = async (fromSurveyId: number) => {
+    setCopyLoading(true);
+    try {
+      const url = surveyType === "jigyotai"
+        ? `/api/surveys/${fromSurveyId}/questions?respondentType=${respondentType}`
+        : `/api/surveys/${fromSurveyId}/questions`;
+
+      const res = await fetch(url);
+      const data = await res.json();
+      const questions = Array.isArray(data.questions) ? data.questions : [];
+
+      if (surveyType === "clinic") {
+        setClinicQuestions(questions.map((q: ClinicQuestion, i: number) => ({
+          num: i + 1,
+          staff_text: q.staff_text,
+          director_text: q.director_text,
+          area: q.area,
+          area_label: q.area_label,
+          question_key: q.question_key || getDefaultClinicQuestionKey(i + 1),
+          compare_key: q.compare_key || getDefaultClinicCompareKey(i + 1, q.question_key || getDefaultClinicQuestionKey(i + 1)),
+        })));
+      } else {
+        setJigyotaiQuestions(questions.map((q: JigyotaiQuestion, i: number) => ({
+          num: i + 1,
+          text: q.text ?? "",
+          area: q.area,
+          short_label: q.short_label ?? "",
+          core_id: q.core_id,
+          scale_type: q.scale_type,
+          skip_options: q.skip_options,
+          question_key: q.question_key || getDefaultJigyotaiQuestionKey(respondentType, i + 1),
+          compare_key: q.compare_key || getDefaultJigyotaiCompareKey(respondentType, i + 1, q.core_id),
+        })));
+      }
+    } finally {
+      setCopyLoading(false);
+      setShowCopyModal(false);
+    }
   };
 
   const addQuestion = () => {
@@ -204,6 +297,13 @@ function QuestionsEditor() {
       body: JSON.stringify(body),
     });
 
+    // Update originals after save
+    if (surveyType === "clinic") {
+      setOriginalClinicQuestions([...clinicQuestions]);
+    } else {
+      setOriginalJigyotaiQuestions([...jigyotaiQuestions]);
+    }
+
     setSaving(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 3000);
@@ -223,6 +323,15 @@ function QuestionsEditor() {
       updated[index] = { ...updated[index], [field]: value };
     }
     setClinicQuestions(updated);
+  };
+
+  const moveClinicQuestion = (index: number, direction: "up" | "down") => {
+    if (direction === "up" && index === 0) return;
+    if (direction === "down" && index === clinicQuestions.length - 1) return;
+    const updated = [...clinicQuestions];
+    const swapIdx = direction === "up" ? index - 1 : index + 1;
+    [updated[index], updated[swapIdx]] = [updated[swapIdx], updated[index]];
+    setClinicQuestions(updated.map((q, i) => ({ ...q, num: i + 1 })));
   };
 
   const removeJigyotaiQuestion = (index: number) => {
@@ -248,6 +357,22 @@ function QuestionsEditor() {
     setJigyotaiQuestions(updated);
   };
 
+  const moveJigyotaiQuestion = (index: number, direction: "up" | "down") => {
+    if (direction === "up" && index === 0) return;
+    if (direction === "down" && index === jigyotaiQuestions.length - 1) return;
+    const updated = [...jigyotaiQuestions];
+    const swapIdx = direction === "up" ? index - 1 : index + 1;
+    [updated[index], updated[swapIdx]] = [updated[swapIdx], updated[index]];
+    setJigyotaiQuestions(updated.map((q, i) => ({ ...q, num: i + 1 })));
+  };
+
+  // Change preview computation
+  const clinicDiff = computeClinicDiff(originalClinicQuestions, clinicQuestions);
+  const jigyotaiDiff = computeJigyotaiDiff(originalJigyotaiQuestions, jigyotaiQuestions);
+  const hasChanges = surveyType === "clinic"
+    ? clinicDiff.added > 0 || clinicDiff.removed > 0 || clinicDiff.modified > 0 || clinicDiff.reordered
+    : jigyotaiDiff.added > 0 || jigyotaiDiff.removed > 0 || jigyotaiDiff.modified > 0 || jigyotaiDiff.reordered;
+
   if (!surveyId) {
     return <div className="text-center py-20 text-[#6B7280]">管理画面からサーベイを選択してください</div>;
   }
@@ -261,9 +386,17 @@ function QuestionsEditor() {
   }
 
   const hasQuestions = surveyType === "clinic" ? clinicQuestions.length > 0 : jigyotaiQuestions.length > 0;
+  const otherSurveys = allSurveys.filter((s) => String(s.id) !== surveyId && s.survey_type === surveyType);
 
   return (
     <div>
+      {/* datalist for question_key suggestions */}
+      <datalist id="question-key-suggestions">
+        {questionKeySuggestions.map((key) => (
+          <option key={key} value={key} />
+        ))}
+      </datalist>
+
       <div className="flex items-center justify-between mb-6">
         <div>
           <h2 className="text-xl font-bold text-[#111827]">質問テンプレート編集</h2>
@@ -273,7 +406,7 @@ function QuestionsEditor() {
               : "回答者タイプごとに質問文と question_key / compare_key を管理します"}
           </p>
         </div>
-        <div className="flex gap-3">
+        <div className="flex gap-2 flex-wrap justify-end">
           {!hasQuestions && (
             <button
               onClick={loadDefaults}
@@ -282,12 +415,32 @@ function QuestionsEditor() {
               デフォルト質問を読み込む
             </button>
           )}
+          {otherSurveys.length > 0 && (
+            <button
+              onClick={() => setShowCopyModal(true)}
+              className="px-4 py-2 bg-[#EFF6FF] text-[#2563EB] border border-[#BFDBFE] rounded-xl text-sm font-medium hover:bg-[#DBEAFE] transition-colors"
+            >
+              前回サーベイから複製
+            </button>
+          )}
           <button
             onClick={addQuestion}
             className="px-4 py-2 bg-white border border-[#D1D5DB] text-[#374151] rounded-xl text-sm font-medium hover:bg-[#F9FAFB] transition-colors"
           >
             + 質問追加
           </button>
+          {hasChanges && (
+            <button
+              onClick={() => setShowPreview(!showPreview)}
+              className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
+                showPreview
+                  ? "bg-[#FEF3C7] text-[#92400E] border border-[#FDE68A]"
+                  : "bg-white text-[#92400E] border border-[#FDE68A] hover:bg-[#FEF3C7]"
+              }`}
+            >
+              {showPreview ? "プレビューを閉じる" : "変更プレビュー"}
+            </button>
+          )}
           <button
             onClick={handleSave}
             disabled={saving || !hasQuestions}
@@ -297,6 +450,52 @@ function QuestionsEditor() {
           </button>
         </div>
       </div>
+
+      {/* Copy from survey modal */}
+      {showCopyModal && (
+        <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50" onClick={() => setShowCopyModal(false)}>
+          <div className="bg-white rounded-2xl border border-[#E5E7EB] p-6 shadow-xl max-w-md w-full mx-4" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-[#111827] mb-2">前回サーベイから複製</h3>
+            <p className="text-xs text-[#6B7280] mb-4">選択したサーベイの質問テンプレートを読み込みます。現在の質問は上書きされます。</p>
+            {copyLoading ? (
+              <div className="flex items-center justify-center py-8">
+                <div className="animate-spin w-6 h-6 border-2 border-[#10B981] border-t-transparent rounded-full" />
+              </div>
+            ) : (
+              <div className="space-y-2 max-h-64 overflow-y-auto">
+                {otherSurveys.map((s) => (
+                  <button
+                    key={s.id}
+                    onClick={() => copyFromSurvey(s.id)}
+                    className="w-full text-left px-4 py-3 rounded-xl border border-[#E5E7EB] hover:border-[#10B981] hover:bg-[#ECFDF5] transition-colors"
+                  >
+                    <p className="text-sm font-medium text-[#111827]">{s.name}</p>
+                    <p className="text-xs text-[#6B7280]">{s.conducted_at}</p>
+                  </button>
+                ))}
+              </div>
+            )}
+            <button
+              onClick={() => setShowCopyModal(false)}
+              className="mt-4 w-full px-4 py-2 bg-[#F3F4F6] text-[#374151] rounded-xl text-sm font-medium hover:bg-[#E5E7EB] transition-colors"
+            >
+              キャンセル
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Change preview */}
+      {showPreview && hasChanges && (
+        <div className="mb-6 bg-[#FFFBEB] rounded-xl border border-[#FDE68A] p-5 shadow-sm">
+          <h3 className="text-sm font-bold text-[#92400E] mb-3">変更プレビュー</h3>
+          {surveyType === "clinic" ? (
+            <ClinicDiffView diff={clinicDiff} />
+          ) : (
+            <JigyotaiDiffView diff={jigyotaiDiff} />
+          )}
+        </div>
+      )}
 
       {surveyType === "jigyotai" && (
         <div className="flex gap-2 mb-6">
@@ -326,19 +525,45 @@ function QuestionsEditor() {
       {!hasQuestions ? (
         <div className="bg-white rounded-xl border border-[#E5E7EB] p-8 text-center shadow-sm">
           <p className="text-[#6B7280] mb-4">質問が設定されていません</p>
-          <button
-            onClick={loadDefaults}
-            className="px-6 py-2.5 bg-[#10B981] text-white rounded-xl text-sm font-semibold hover:bg-[#059669] transition-colors"
-          >
-            デフォルト質問セットを読み込む
-          </button>
+          <div className="flex gap-3 justify-center">
+            <button
+              onClick={loadDefaults}
+              className="px-6 py-2.5 bg-[#10B981] text-white rounded-xl text-sm font-semibold hover:bg-[#059669] transition-colors"
+            >
+              デフォルト質問セットを読み込む
+            </button>
+            {otherSurveys.length > 0 && (
+              <button
+                onClick={() => setShowCopyModal(true)}
+                className="px-6 py-2.5 bg-[#EFF6FF] text-[#2563EB] border border-[#BFDBFE] rounded-xl text-sm font-semibold hover:bg-[#DBEAFE] transition-colors"
+              >
+                前回サーベイから複製
+              </button>
+            )}
+          </div>
         </div>
       ) : surveyType === "clinic" ? (
         <div className="space-y-4">
           {clinicQuestions.map((question, index) => (
             <div key={index} className="bg-white rounded-xl border border-[#E5E7EB] p-5 shadow-sm">
               <div className="flex items-center justify-between mb-4">
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2">
+                  <div className="flex flex-col gap-0.5">
+                    <button
+                      onClick={() => moveClinicQuestion(index, "up")}
+                      disabled={index === 0}
+                      className="text-[#9CA3AF] hover:text-[#374151] disabled:opacity-30 transition-colors"
+                    >
+                      <ArrowUpIcon />
+                    </button>
+                    <button
+                      onClick={() => moveClinicQuestion(index, "down")}
+                      disabled={index === clinicQuestions.length - 1}
+                      className="text-[#9CA3AF] hover:text-[#374151] disabled:opacity-30 transition-colors"
+                    >
+                      <ArrowDownIcon />
+                    </button>
+                  </div>
                   <span className="text-sm font-bold text-[#10B981] bg-[#ECFDF5] px-3 py-1 rounded-lg">
                     Q{question.num}
                   </span>
@@ -371,6 +596,7 @@ function QuestionsEditor() {
                     <label className="block text-xs text-[#6B7280] mb-1">question_key</label>
                     <input
                       type="text"
+                      list="question-key-suggestions"
                       value={question.question_key}
                       onChange={(e) => updateClinicQuestion(index, "question_key", e.target.value)}
                       className="w-full border border-[#D1D5DB] rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#10B981]/30 focus:border-[#10B981]"
@@ -381,6 +607,7 @@ function QuestionsEditor() {
                     <label className="block text-xs text-[#6B7280] mb-1">compare_key</label>
                     <input
                       type="text"
+                      list="question-key-suggestions"
                       value={question.compare_key ?? ""}
                       onChange={(e) => updateClinicQuestion(index, "compare_key", e.target.value)}
                       className="w-full border border-[#D1D5DB] rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#10B981]/30 focus:border-[#10B981]"
@@ -417,9 +644,27 @@ function QuestionsEditor() {
           {jigyotaiQuestions.map((question, index) => (
             <div key={index} className="bg-white rounded-xl border border-[#E5E7EB] p-5 shadow-sm">
               <div className="flex items-center justify-between mb-4">
-                <span className="text-sm font-bold text-[#10B981] bg-[#ECFDF5] px-3 py-1 rounded-lg">
-                  Q{question.num}
-                </span>
+                <div className="flex items-center gap-2">
+                  <div className="flex flex-col gap-0.5">
+                    <button
+                      onClick={() => moveJigyotaiQuestion(index, "up")}
+                      disabled={index === 0}
+                      className="text-[#9CA3AF] hover:text-[#374151] disabled:opacity-30 transition-colors"
+                    >
+                      <ArrowUpIcon />
+                    </button>
+                    <button
+                      onClick={() => moveJigyotaiQuestion(index, "down")}
+                      disabled={index === jigyotaiQuestions.length - 1}
+                      className="text-[#9CA3AF] hover:text-[#374151] disabled:opacity-30 transition-colors"
+                    >
+                      <ArrowDownIcon />
+                    </button>
+                  </div>
+                  <span className="text-sm font-bold text-[#10B981] bg-[#ECFDF5] px-3 py-1 rounded-lg">
+                    Q{question.num}
+                  </span>
+                </div>
                 <button
                   onClick={() => removeJigyotaiQuestion(index)}
                   className="text-[#9CA3AF] hover:text-[#DC2626] transition-colors"
@@ -455,6 +700,7 @@ function QuestionsEditor() {
                   <label className="block text-xs text-[#6B7280] mb-1">question_key</label>
                   <input
                     type="text"
+                    list="question-key-suggestions"
                     value={question.question_key}
                     onChange={(e) => updateJigyotaiQuestion(index, "question_key", e.target.value)}
                     className="w-full border border-[#D1D5DB] rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#10B981]/30 focus:border-[#10B981]"
@@ -465,6 +711,7 @@ function QuestionsEditor() {
                   <label className="block text-xs text-[#6B7280] mb-1">compare_key</label>
                   <input
                     type="text"
+                    list="question-key-suggestions"
                     value={question.compare_key ?? ""}
                     onChange={(e) => updateJigyotaiQuestion(index, "compare_key", e.target.value)}
                     className="w-full border border-[#D1D5DB] rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#10B981]/30 focus:border-[#10B981]"
@@ -521,6 +768,166 @@ function QuestionsEditor() {
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+// --- Diff computation and preview components ---
+
+interface DiffResult {
+  added: number;
+  removed: number;
+  modified: number;
+  reordered: boolean;
+  details: Array<{
+    type: "added" | "removed" | "modified" | "unchanged";
+    num: number;
+    questionKey: string;
+    changes?: string[];
+  }>;
+}
+
+function computeClinicDiff(original: ClinicQuestion[], current: ClinicQuestion[]): DiffResult {
+  const origMap = new Map(original.map((q) => [q.question_key, q]));
+  const currMap = new Map(current.map((q) => [q.question_key, q]));
+  const details: DiffResult["details"] = [];
+  let added = 0, removed = 0, modified = 0, reordered = false;
+
+  for (const q of current) {
+    const orig = origMap.get(q.question_key);
+    if (!orig) {
+      added++;
+      details.push({ type: "added", num: q.num, questionKey: q.question_key });
+    } else {
+      const changes: string[] = [];
+      if (orig.staff_text !== q.staff_text) changes.push("スタッフ質問文");
+      if (orig.director_text !== q.director_text) changes.push("院長質問文");
+      if (orig.area !== q.area) changes.push("領域");
+      if (orig.compare_key !== q.compare_key) changes.push("compare_key");
+      if (orig.num !== q.num) reordered = true;
+      if (changes.length > 0) {
+        modified++;
+        details.push({ type: "modified", num: q.num, questionKey: q.question_key, changes });
+      } else {
+        details.push({ type: "unchanged", num: q.num, questionKey: q.question_key });
+      }
+    }
+  }
+
+  for (const q of original) {
+    if (!currMap.has(q.question_key)) {
+      removed++;
+      details.push({ type: "removed", num: q.num, questionKey: q.question_key });
+    }
+  }
+
+  return { added, removed, modified, reordered, details };
+}
+
+function computeJigyotaiDiff(original: JigyotaiQuestion[], current: JigyotaiQuestion[]): DiffResult {
+  const origMap = new Map(original.map((q) => [q.question_key, q]));
+  const currMap = new Map(current.map((q) => [q.question_key, q]));
+  const details: DiffResult["details"] = [];
+  let added = 0, removed = 0, modified = 0, reordered = false;
+
+  for (const q of current) {
+    const orig = origMap.get(q.question_key);
+    if (!orig) {
+      added++;
+      details.push({ type: "added", num: q.num, questionKey: q.question_key });
+    } else {
+      const changes: string[] = [];
+      if (orig.text !== q.text) changes.push("質問文");
+      if (orig.area !== q.area) changes.push("領域");
+      if (orig.short_label !== q.short_label) changes.push("短縮ラベル");
+      if (orig.compare_key !== q.compare_key) changes.push("compare_key");
+      if (orig.num !== q.num) reordered = true;
+      if (changes.length > 0) {
+        modified++;
+        details.push({ type: "modified", num: q.num, questionKey: q.question_key, changes });
+      } else {
+        details.push({ type: "unchanged", num: q.num, questionKey: q.question_key });
+      }
+    }
+  }
+
+  for (const q of original) {
+    if (!currMap.has(q.question_key)) {
+      removed++;
+      details.push({ type: "removed", num: q.num, questionKey: q.question_key });
+    }
+  }
+
+  return { added, removed, modified, reordered, details };
+}
+
+function DiffSummaryBadges({ diff }: { diff: DiffResult }) {
+  return (
+    <div className="flex gap-2 mb-3 flex-wrap">
+      {diff.added > 0 && (
+        <span className="text-xs px-2.5 py-1 rounded-full bg-[#DCFCE7] text-[#166534] font-medium">
+          +{diff.added} 追加
+        </span>
+      )}
+      {diff.removed > 0 && (
+        <span className="text-xs px-2.5 py-1 rounded-full bg-[#FEE2E2] text-[#991B1B] font-medium">
+          -{diff.removed} 削除
+        </span>
+      )}
+      {diff.modified > 0 && (
+        <span className="text-xs px-2.5 py-1 rounded-full bg-[#FEF3C7] text-[#92400E] font-medium">
+          {diff.modified} 変更
+        </span>
+      )}
+      {diff.reordered && (
+        <span className="text-xs px-2.5 py-1 rounded-full bg-[#E0E7FF] text-[#3730A3] font-medium">
+          並び替えあり
+        </span>
+      )}
+    </div>
+  );
+}
+
+function DiffDetailList({ diff }: { diff: DiffResult }) {
+  const changed = diff.details.filter((d) => d.type !== "unchanged");
+  if (changed.length === 0) return null;
+  return (
+    <div className="space-y-1.5">
+      {changed.map((d, i) => (
+        <div key={i} className={`text-xs px-3 py-2 rounded-lg ${
+          d.type === "added" ? "bg-[#F0FDF4] text-[#166534]" :
+          d.type === "removed" ? "bg-[#FEF2F2] text-[#991B1B]" :
+          "bg-[#FFFBEB] text-[#92400E]"
+        }`}>
+          <span className="font-medium">
+            Q{d.num}
+          </span>
+          <span className="ml-2 font-mono text-[10px] opacity-70">{d.questionKey}</span>
+          {d.type === "added" && <span className="ml-2">新規追加</span>}
+          {d.type === "removed" && <span className="ml-2">削除</span>}
+          {d.type === "modified" && d.changes && (
+            <span className="ml-2">{d.changes.join("、")} を変更</span>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ClinicDiffView({ diff }: { diff: DiffResult }) {
+  return (
+    <div>
+      <DiffSummaryBadges diff={diff} />
+      <DiffDetailList diff={diff} />
+    </div>
+  );
+}
+
+function JigyotaiDiffView({ diff }: { diff: DiffResult }) {
+  return (
+    <div>
+      <DiffSummaryBadges diff={diff} />
+      <DiffDetailList diff={diff} />
     </div>
   );
 }
