@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useSurveyContext } from "@/components/survey-context";
+import { fetchJsonSafe, isRecord } from "@/lib/client-json";
 import { getEntityShortName } from "@/lib/entities";
 import { SKIP_OPTIONS } from "@/lib/jigyotai-questions";
 
@@ -26,6 +27,12 @@ interface SkipData {
   rows: SkipRow[];
 }
 
+const EMPTY_SKIP_DATA: SkipData = { entities: [], rows: [] };
+
+function isSkipData(value: unknown): value is SkipData {
+  return isRecord(value) && Array.isArray(value.entities) && Array.isArray(value.rows);
+}
+
 export default function SkipAnalysisPage() {
   const { id: surveyId } = useSurveyContext();
   const [data, setData] = useState<SkipData | null>(null);
@@ -33,7 +40,7 @@ export default function SkipAnalysisPage() {
 
   useEffect(() => {
     if (!surveyId) return;
-    fetch(`/api/surveys/${surveyId}/jg-skip`).then((r) => r.json()).then(setData);
+    fetchJsonSafe(`/api/surveys/${surveyId}/jg-skip`, isSkipData, EMPTY_SKIP_DATA).then(setData);
   }, [surveyId]);
 
   if (!surveyId) {

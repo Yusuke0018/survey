@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useSurveyContext } from "@/components/survey-context";
+import { fetchJsonSafe, isRecord } from "@/lib/client-json";
 import { ScoreBadge } from "@/components/score-badge";
 import { ScoreBar } from "@/components/score-bar";
 import { getEntityShortName, getEntityGroupColor } from "@/lib/entities";
@@ -32,6 +33,21 @@ interface CorporateData {
   allComments: Array<{ entity: string; free_text: string }>;
 }
 
+const EMPTY_CORPORATE_DATA: CorporateData = {
+  overallAvg: 0,
+  overallScores: [],
+  entities: [],
+  allComments: [],
+};
+
+function isCorporateData(value: unknown): value is CorporateData {
+  return isRecord(value)
+    && typeof value.overallAvg === "number"
+    && Array.isArray(value.overallScores)
+    && Array.isArray(value.entities)
+    && Array.isArray(value.allComments);
+}
+
 export default function CorporatePage() {
   const { id: surveyId } = useSurveyContext();
   const [data, setData] = useState<CorporateData | null>(null);
@@ -39,8 +55,7 @@ export default function CorporatePage() {
 
   useEffect(() => {
     if (!surveyId) return;
-    fetch(`/api/surveys/${surveyId}/jg-corporate`)
-      .then((r) => r.json())
+    fetchJsonSafe(`/api/surveys/${surveyId}/jg-corporate`, isCorporateData, EMPTY_CORPORATE_DATA)
       .then((d: CorporateData) => {
         setData(d);
         if (d.entities.length > 0 && !selectedEntity) setSelectedEntity(d.entities[0].entity);

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useSurveyContext } from "@/components/survey-context";
+import { fetchJsonSafe, isRecord } from "@/lib/client-json";
 import { ScoreBadge } from "@/components/score-badge";
 import { ENTITY_GROUPS, getEntityShortName, getEntityGroupColor, groupEntitiesByGroup } from "@/lib/entities";
 import {
@@ -26,6 +27,12 @@ interface JgScoreData {
   areaAverages: Array<{ area: string; label: string; score: number }>;
 }
 
+const EMPTY_JG_SCORE_DATA: JgScoreData = { scores: [], areaAverages: [] };
+
+function isJgScoreData(value: unknown): value is JgScoreData {
+  return isRecord(value) && Array.isArray(value.scores) && Array.isArray(value.areaAverages);
+}
+
 type ViewMode = "all" | "group" | string;
 
 export default function EntitiesPage() {
@@ -37,13 +44,16 @@ export default function EntitiesPage() {
 
   useEffect(() => {
     if (!surveyId) return;
-    fetch(`/api/surveys/${surveyId}/jg-entities`).then((r) => r.json()).then((data: EntityData[]) => {
+    fetchJsonSafe(`/api/surveys/${surveyId}/jg-entities`, Array.isArray, [] as EntityData[]).then((data) => {
       setEntities(data);
       // Fetch per-entity scores for heatmap
       const scorePromises: Record<string, Promise<JgScoreData>> = {};
       for (const e of data) {
-        scorePromises[e.entity] = fetch(`/api/surveys/${surveyId}/jg-scores?type=staff&entity=${encodeURIComponent(e.entity)}`)
-          .then((r) => r.json());
+        scorePromises[e.entity] = fetchJsonSafe(
+          `/api/surveys/${surveyId}/jg-scores?type=staff&entity=${encodeURIComponent(e.entity)}`,
+          isJgScoreData,
+          EMPTY_JG_SCORE_DATA
+        );
       }
       Promise.all(
         Object.entries(scorePromises).map(async ([entity, promise]) => {
@@ -57,7 +67,7 @@ export default function EntitiesPage() {
       });
     });
     // Overall heatmap data
-    fetch(`/api/surveys/${surveyId}/jg-scores?type=staff`).then((r) => r.json()).then(setHeatmapData);
+    fetchJsonSafe(`/api/surveys/${surveyId}/jg-scores?type=staff`, isJgScoreData, EMPTY_JG_SCORE_DATA).then(setHeatmapData);
   }, [surveyId]);
 
   if (!surveyId) {

@@ -5,6 +5,7 @@ import { ScoreBadge } from "@/components/score-badge";
 import { CLINIC_GROUPS } from "@/lib/clinics";
 import { ENTITY_GROUPS } from "@/lib/entities";
 import { useSurveyContext } from "@/components/survey-context";
+import { fetchJsonSafe } from "@/lib/client-json";
 
 interface ResponseItem {
   key: string;
@@ -89,8 +90,8 @@ export default function ResponsesPage() {
     if (orgFilter) params.set(isJigyotai ? "entity" : "clinic", orgFilter);
     const query = params.toString() ? `?${params.toString()}` : "";
 
-    fetch(`/api/surveys/${surveyId}/responses${query}`).then((r) => r.json()).then(setResponses);
-    fetch(`/api/surveys/${surveyId}/free-text${query}`).then((r) => r.json()).then(setFreeTexts);
+    fetchJsonSafe(`/api/surveys/${surveyId}/responses${query}`, Array.isArray, [] as ResponseItem[]).then(setResponses);
+    fetchJsonSafe(`/api/surveys/${surveyId}/free-text${query}`, Array.isArray, [] as FreeTextItem[]).then(setFreeTexts);
   }, [surveyId, orgFilter, typeFilter, isJigyotai]);
 
   useEffect(() => {

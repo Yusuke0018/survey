@@ -5,6 +5,7 @@ import { ScoreBadge } from "@/components/score-badge";
 import { ScoreBar } from "@/components/score-bar";
 import { AreaBadge } from "@/components/area-badge";
 import { useSurveyContext } from "@/components/survey-context";
+import { fetchJsonSafe, isRecord } from "@/lib/client-json";
 import {
   Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer, Tooltip,
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Cell,
@@ -61,6 +62,26 @@ interface JgEntityData {
   alertItems: Array<{ num: number; score: number; label: string }>;
 }
 
+function isClinicSummary(value: unknown): value is ClinicSummary {
+  return isRecord(value) && typeof value.staffCount === "number" && typeof value.directorCount === "number";
+}
+
+function isClinicScoreData(value: unknown): value is ClinicScoreData {
+  return isRecord(value) && Array.isArray(value.scores) && Array.isArray(value.areaAverages);
+}
+
+function isJigyotaiSummary(value: unknown): value is JigyotaiSummary {
+  return isRecord(value)
+    && typeof value.staffCount === "number"
+    && typeof value.managerCount === "number"
+    && typeof value.corporateCount === "number"
+    && Array.isArray(value.entities);
+}
+
+function isJgScoreData(value: unknown): value is JgScoreData {
+  return isRecord(value) && Array.isArray(value.scores) && Array.isArray(value.areaAverages);
+}
+
 // ==================== Common ====================
 const AREA_COLORS: Record<string, string> = {
   "心理的安全性": "#3B82F6",
@@ -91,12 +112,12 @@ export default function DashboardPage() {
     if (!surveyId) return;
 
     if (surveyType === "jigyotai") {
-      fetch(`/api/surveys/${surveyId}/summary`).then((r) => r.json()).then(setJgSummary);
-      fetch(`/api/surveys/${surveyId}/jg-scores?type=staff`).then((r) => r.json()).then(setJgScores);
-      fetch(`/api/surveys/${surveyId}/jg-entities`).then((r) => r.json()).then(setJgEntities);
+      fetchJsonSafe(`/api/surveys/${surveyId}/summary`, isJigyotaiSummary, null).then(setJgSummary);
+      fetchJsonSafe(`/api/surveys/${surveyId}/jg-scores?type=staff`, isJgScoreData, null).then(setJgScores);
+      fetchJsonSafe(`/api/surveys/${surveyId}/jg-entities`, Array.isArray, [] as JgEntityData[]).then(setJgEntities);
     } else {
-      fetch(`/api/surveys/${surveyId}/summary`).then((r) => r.json()).then(setClinicSummary);
-      fetch(`/api/surveys/${surveyId}/scores`).then((r) => r.json()).then(setClinicScoreData);
+      fetchJsonSafe(`/api/surveys/${surveyId}/summary`, isClinicSummary, null).then(setClinicSummary);
+      fetchJsonSafe(`/api/surveys/${surveyId}/scores`, isClinicScoreData, null).then(setClinicScoreData);
     }
   }, [surveyId, surveyType]);
 

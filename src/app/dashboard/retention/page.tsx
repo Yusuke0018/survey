@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { ScoreBadge } from "@/components/score-badge";
 import { useSurveyContext } from "@/components/survey-context";
+import { fetchJsonSafe, isRecord } from "@/lib/client-json";
 import {
   ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, ReferenceLine, Cell, Label,
@@ -26,6 +27,20 @@ interface RetentionResponse {
   xLabel: string;
   yLabel: string;
   data: RetentionData[];
+}
+
+const EMPTY_RETENTION_RESPONSE: RetentionResponse = {
+  surveyType: "clinic",
+  unitLabel: "拠点",
+  xQuestionNum: 7,
+  yQuestionNum: 15,
+  xLabel: "相談しやすい",
+  yLabel: "継続意向",
+  data: [],
+};
+
+function isRetentionResponse(value: unknown): value is RetentionResponse {
+  return isRecord(value) && Array.isArray(value.data);
 }
 
 function getLevelColor(level: string) {
@@ -90,7 +105,7 @@ export default function RetentionPage() {
 
   useEffect(() => {
     if (!surveyId) return;
-    fetch(`/api/surveys/${surveyId}/retention`).then((r) => r.json()).then(setResponse);
+    fetchJsonSafe(`/api/surveys/${surveyId}/retention`, isRetentionResponse, EMPTY_RETENTION_RESPONSE).then(setResponse);
   }, [surveyId]);
 
   if (!surveyId) {

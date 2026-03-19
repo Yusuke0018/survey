@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { ScoreBadge } from "@/components/score-badge";
 import { AreaBadge } from "@/components/area-badge";
 import { useSurveyContext } from "@/components/survey-context";
+import { fetchJsonSafe } from "@/lib/client-json";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from "recharts";
@@ -29,7 +30,7 @@ export default function GapPage() {
 
   useEffect(() => {
     if (!surveyId) return;
-    fetch(`/api/surveys/${surveyId}/gap`).then((r) => r.json()).then(setGaps);
+    fetchJsonSafe(`/api/surveys/${surveyId}/gap`, Array.isArray, [] as GapData[]).then(setGaps);
   }, [surveyId]);
 
   if (!surveyId) {

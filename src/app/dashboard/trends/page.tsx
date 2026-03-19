@@ -5,6 +5,7 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from "recharts";
 import { AREAS, AREA_ORDER, type AreaKey } from "@/lib/questions";
+import { fetchJsonSafe } from "@/lib/client-json";
 
 interface Survey {
   id: number;
@@ -27,7 +28,7 @@ export default function TrendsPage() {
   const [view, setView] = useState<"area" | "clinic">("area");
 
   useEffect(() => {
-    fetch("/api/surveys").then((r) => r.json()).then((data: Survey[]) => {
+    fetchJsonSafe("/api/surveys", Array.isArray, [] as Survey[]).then((data: Survey[]) => {
       setSurveys(data);
       if (data.length > 0) {
         setSelectedIds(data.map((s) => s.id));
@@ -37,7 +38,7 @@ export default function TrendsPage() {
 
   useEffect(() => {
     if (selectedIds.length === 0) return;
-    fetch(`/api/trends?ids=${selectedIds.join(",")}`).then((r) => r.json()).then(setTrends);
+    fetchJsonSafe(`/api/trends?ids=${selectedIds.join(",")}`, Array.isArray, [] as TrendData[]).then(setTrends);
   }, [selectedIds]);
 
   const toggleSurvey = (id: number) => {

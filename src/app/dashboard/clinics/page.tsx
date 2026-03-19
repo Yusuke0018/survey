@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useSurveyContext } from "@/components/survey-context";
+import { fetchJsonSafe, isRecord } from "@/lib/client-json";
 import { ScoreBadge, getScoreBorderColor } from "@/components/score-badge";
 import { getClinicShortName, CLINIC_GROUPS, groupClinicsByEntity, type ClinicGroup } from "@/lib/clinics";
 import {
@@ -29,6 +30,10 @@ interface HeatmapData {
   clinicTotals: Record<string, { avg: number; count: number }>;
 }
 
+function isHeatmapData(value: unknown): value is HeatmapData {
+  return isRecord(value) && Array.isArray(value.clinics) && Array.isArray(value.rows);
+}
+
 type ViewMode = "all" | "group" | string; // string = specific group id
 
 export default function ClinicsPage() {
@@ -39,8 +44,8 @@ export default function ClinicsPage() {
 
   useEffect(() => {
     if (!surveyId) return;
-    fetch(`/api/surveys/${surveyId}/clinics`).then((r) => r.json()).then(setClinics);
-    fetch(`/api/surveys/${surveyId}/heatmap`).then((r) => r.json()).then(setHeatmap);
+    fetchJsonSafe(`/api/surveys/${surveyId}/clinics`, Array.isArray, [] as ClinicData[]).then(setClinics);
+    fetchJsonSafe(`/api/surveys/${surveyId}/heatmap`, isHeatmapData, null).then(setHeatmap);
   }, [surveyId]);
 
   if (!surveyId) {

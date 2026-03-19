@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useSurveyContext } from "@/components/survey-context";
+import { fetchJsonSafe } from "@/lib/client-json";
 import { ScoreBadge } from "@/components/score-badge";
 import { getEntityShortName, getEntityGroupColor } from "@/lib/entities";
 import {
@@ -33,8 +34,7 @@ export default function TricomparePage() {
 
   useEffect(() => {
     if (!surveyId) return;
-    fetch(`/api/surveys/${surveyId}/jg-tricompare`)
-      .then((r) => r.json())
+    fetchJsonSafe(`/api/surveys/${surveyId}/jg-tricompare`, Array.isArray, [] as EntityTricompare[])
       .then((d: EntityTricompare[]) => {
         setData(d);
         if (d.length > 0 && !selectedEntity) setSelectedEntity(d[0].entity);

@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { useSurveyContext } from "@/components/survey-context";
+import { fetchJsonSafe, isRecord } from "@/lib/client-json";
 import { ScoreBadge } from "@/components/score-badge";
 import { ScoreBar } from "@/components/score-bar";
 import { AreaBadge } from "@/components/area-badge";
@@ -40,6 +41,15 @@ interface ClinicDetail {
   }> | null;
 }
 
+function isClinicDetail(value: unknown): value is ClinicDetail {
+  return isRecord(value)
+    && typeof value.clinic === "string"
+    && Array.isArray(value.questionScores)
+    && Array.isArray(value.areaAverages)
+    && Array.isArray(value.responses)
+    && Array.isArray(value.freeTexts);
+}
+
 export default function ClinicDetailPage() {
   const params = useParams();
   const { id: surveyId } = useSurveyContext();
@@ -48,8 +58,7 @@ export default function ClinicDetailPage() {
 
   useEffect(() => {
     if (!surveyId || !clinicName) return;
-    fetch(`/api/surveys/${surveyId}/clinics/${encodeURIComponent(clinicName)}`)
-      .then((r) => r.json())
+    fetchJsonSafe(`/api/surveys/${surveyId}/clinics/${encodeURIComponent(clinicName)}`, isClinicDetail, null)
       .then(setData);
   }, [surveyId, clinicName]);
 
