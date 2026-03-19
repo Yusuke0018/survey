@@ -107,13 +107,21 @@ export async function POST(
 
     // Bulk insert in a single transaction
     const count = await withTransaction(async (tx) => {
-      // Delete existing responses for this type
+      // Delete existing response_answers first (FK constraint), then responses
       if (survey.survey_type === "jigyotai") {
+        await tx.execute({
+          sql: "DELETE FROM response_answers WHERE response_id IN (SELECT id FROM responses WHERE survey_id = ? AND type = ? AND entity IS NOT NULL)",
+          args: [surveyId, respondentType],
+        });
         await tx.execute({
           sql: "DELETE FROM responses WHERE survey_id = ? AND type = ? AND entity IS NOT NULL",
           args: [surveyId, respondentType],
         });
       } else {
+        await tx.execute({
+          sql: "DELETE FROM response_answers WHERE response_id IN (SELECT id FROM responses WHERE survey_id = ? AND type = ? AND entity IS NULL)",
+          args: [surveyId, respondentType],
+        });
         await tx.execute({
           sql: "DELETE FROM responses WHERE survey_id = ? AND type = ? AND entity IS NULL",
           args: [surveyId, respondentType],
