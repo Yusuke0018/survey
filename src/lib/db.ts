@@ -540,8 +540,18 @@ export async function getNewScoreAverages(surveyId: number, type: string, clinic
   }>(sql, args);
 }
 
-export async function insertStaffResponses(rows: ResponseRow[]) {
+export async function insertStaffResponses(
+  rows: ResponseRow[],
+  options?: { replaceExisting?: boolean }
+) {
   await withTransaction(async (tx) => {
+    if (options?.replaceExisting && rows[0]?.survey_id != null) {
+      await tx.execute({
+        sql: "DELETE FROM staff_responses WHERE survey_id = ?",
+        args: [rows[0].survey_id],
+      });
+    }
+
     for (const row of rows) {
       await tx.execute({
         sql: `
@@ -568,13 +578,19 @@ export async function insertStaffResponses(rows: ResponseRow[]) {
   return rows.length;
 }
 
-export async function insertDirectorResponses(rows: ResponseRow[]) {
+export async function insertDirectorResponses(
+  rows: ResponseRow[],
+  options?: { replaceExisting?: boolean }
+) {
   await withTransaction(async (tx) => {
-    for (const row of rows) {
+    if (options?.replaceExisting && rows[0]?.survey_id != null) {
       await tx.execute({
-        sql: "DELETE FROM director_responses WHERE survey_id = ? AND clinic = ?",
-        args: [row.survey_id, row.clinic],
+        sql: "DELETE FROM director_responses WHERE survey_id = ?",
+        args: [rows[0].survey_id],
       });
+    }
+
+    for (const row of rows) {
       await tx.execute({
         sql: `
           INSERT INTO director_responses (

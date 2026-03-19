@@ -563,8 +563,8 @@ surveys (1) ──< director_responses (N) [レガシー]
 - **認証**: admin
 - **Content-Type**: `multipart/form-data`
 - **フィールド**: `csv` (File)
-- **処理**: CSVパース→レガシーテーブル（staff_responses/director_responses）に挿入
-- **レスポンス**: `{ "count": 50, "matchedQuestions": 15, "totalRows": 50, "warnings": [] }`
+- **処理**: CSVパース→同サーベイ・同回答種別の既存レガシーデータを全置換
+- **レスポンス**: `{ "count": 50, "matchedQuestions": 15, "totalRows": 50, "mode": "replace", "warnings": [] }`
 
 #### 管理用 Seed
 

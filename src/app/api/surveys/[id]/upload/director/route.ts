@@ -44,11 +44,12 @@ export async function POST(
     return NextResponse.json({ error: result.errors.join("; ") }, { status: 400 });
   }
 
-  const count = await insertDirectorResponses(result.rows);
+  const count = await insertDirectorResponses(result.rows, { replaceExisting: true });
   return NextResponse.json({
     count,
     matchedQuestions: result.matchedQuestions,
     totalRows: result.totalRows,
+    mode: "replace",
     warnings: result.errors,
   });
 }
