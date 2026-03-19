@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { login, setSessionCookie } from "@/lib/auth";
+import { login, setSessionCookies } from "@/lib/auth";
 
 export async function POST(request: NextRequest) {
   const { password } = await request.json();
@@ -10,5 +10,5 @@ export async function POST(request: NextRequest) {
   }
 
   const response = NextResponse.json({ success: true, role: result.role });
-  return setSessionCookie(response, result.token);
+  return setSessionCookies(response, result.role);
 }
