@@ -39,6 +39,9 @@ export default function AdminPage() {
   const [uploadingSurveyId, setUploadingSurveyId] = useState<number | null>(null);
   const [uploadType, setUploadType] = useState<string>("staff");
   const [uploadResult, setUploadResult] = useState<string | null>(null);
+  const [importMode, setImportMode] = useState<"sheet" | "csv">("sheet");
+  const [sheetUrl, setSheetUrl] = useState("");
+  const [importing, setImporting] = useState(false);
 
   const loadSurveys = () => {
     fetch("/api/surveys").then((r) => r.json()).then(setSurveys);
@@ -88,6 +91,36 @@ export default function AdminPage() {
       body: JSON.stringify({ status: newStatus }),
     });
     loadSurveys();
+  };
+
+  const handleSheetImport = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!uploadingSurveyId || !sheetUrl) return;
+
+    setImporting(true);
+    setUploadResult(null);
+    try {
+      const res = await fetch(`/api/surveys/${uploadingSurveyId}/import-sheet`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: sheetUrl, type: uploadType }),
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        const matched = data.totalQuestions ? `${data.matchedQuestions}/${data.totalQuestions}問マッチ` : `${data.matchedQuestions}問マッチ`;
+        setUploadResult(`${data.count}件の回答をインポートしました（${matched}）${data.warnings?.length ? "\n" + data.warnings.join("; ") : ""}`);
+        setSelectedSurveyId(uploadingSurveyId);
+        loadSurveys();
+        setSheetUrl("");
+      } else {
+        setUploadResult(`エラー: ${data.error || res.statusText}`);
+      }
+    } catch (err) {
+      setUploadResult(`エラー: ${err instanceof Error ? err.message : "通信エラーが発生しました"}`);
+    } finally {
+      setImporting(false);
+    }
   };
 
   const handleUpload = async (e: React.FormEvent) => {
@@ -249,10 +282,12 @@ export default function AdminPage() {
                         setUploadingSurveyId(s.id);
                         setUploadType("staff");
                         setUploadResult(null);
+                        setImportMode("sheet");
+                        setSheetUrl("");
                       }}
                       className="text-xs px-3 py-1.5 bg-[#F3F4F6] text-[#374151] rounded-lg hover:bg-[#E5E7EB] transition-colors"
                     >
-                      CSVアップ
+                      データ取込
                     </button>
                     <button
                       onClick={() => handleDelete(s.id)}
@@ -273,14 +308,14 @@ export default function AdminPage() {
         </table>
       </div>
 
-      {/* Upload Modal */}
+      {/* Import Modal */}
       {uploadingSurveyId && (() => {
         const uploadingSurvey = surveys.find((s) => s.id === uploadingSurveyId);
         return (
         <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
           <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md animate-scale-in">
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-sm font-semibold text-[#111827]">CSVアップロード</h3>
+              <h3 className="text-sm font-semibold text-[#111827]">過去データの取込</h3>
               <button onClick={() => setUploadingSurveyId(null)} className="text-[#6B7280] hover:text-[#111827] transition-colors">
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -292,6 +327,27 @@ export default function AdminPage() {
               サーベイ: {surveys.find((s) => s.id === uploadingSurveyId)?.name}
             </p>
 
+            {/* Import mode toggle */}
+            <div className="flex gap-1 mb-4 bg-[#F3F4F6] rounded-lg p-1">
+              <button
+                onClick={() => setImportMode("sheet")}
+                className={`flex-1 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                  importMode === "sheet" ? "bg-white text-[#111827] shadow-sm" : "text-[#6B7280]"
+                }`}
+              >
+                スプレッドシート
+              </button>
+              <button
+                onClick={() => setImportMode("csv")}
+                className={`flex-1 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                  importMode === "csv" ? "bg-white text-[#111827] shadow-sm" : "text-[#6B7280]"
+                }`}
+              >
+                CSVファイル
+              </button>
+            </div>
+
+            {/* Respondent type selector */}
             <div className="flex gap-2 mb-4">
               {(uploadingSurvey?.survey_type === "jigyotai"
                 ? [
@@ -316,19 +372,41 @@ export default function AdminPage() {
               ))}
             </div>
 
-            <form onSubmit={handleUpload}>
-              <input
-                type="file"
-                accept=".csv"
-                className="w-full border border-[#D1D5DB] rounded-xl px-4 py-2.5 text-sm mb-4"
-              />
-              <button
-                type="submit"
-                className="w-full py-2.5 bg-[#10B981] text-white rounded-xl text-sm font-semibold hover:bg-[#059669] transition-colors"
-              >
-                アップロード
-              </button>
-            </form>
+            {importMode === "sheet" ? (
+              <form onSubmit={handleSheetImport}>
+                <input
+                  type="url"
+                  value={sheetUrl}
+                  onChange={(e) => setSheetUrl(e.target.value)}
+                  placeholder="https://docs.google.com/spreadsheets/d/..."
+                  className="w-full border border-[#D1D5DB] rounded-xl px-4 py-2.5 text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-[#10B981]/30 focus:border-[#10B981]"
+                />
+                <p className="text-[10px] text-[#9CA3AF] mb-4">
+                  共有設定を「リンクを知っている全員が閲覧可」にしてください
+                </p>
+                <button
+                  type="submit"
+                  disabled={importing || !sheetUrl}
+                  className="w-full py-2.5 bg-[#10B981] text-white rounded-xl text-sm font-semibold hover:bg-[#059669] transition-colors disabled:opacity-50"
+                >
+                  {importing ? "取込中..." : "スプレッドシートから取込"}
+                </button>
+              </form>
+            ) : (
+              <form onSubmit={handleUpload}>
+                <input
+                  type="file"
+                  accept=".csv"
+                  className="w-full border border-[#D1D5DB] rounded-xl px-4 py-2.5 text-sm mb-4"
+                />
+                <button
+                  type="submit"
+                  className="w-full py-2.5 bg-[#10B981] text-white rounded-xl text-sm font-semibold hover:bg-[#059669] transition-colors"
+                >
+                  CSVアップロード
+                </button>
+              </form>
+            )}
 
             {uploadResult && (
               <div className={`mt-4 text-xs p-3 rounded-xl whitespace-pre-wrap ${
