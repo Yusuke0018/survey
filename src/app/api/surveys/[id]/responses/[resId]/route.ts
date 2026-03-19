@@ -11,7 +11,7 @@ export async function GET(
 
   const { id, resId } = await params;
   const surveyId = parseInt(id);
-  const detail = getSurveyResponseDetail(surveyId, decodeURIComponent(resId));
+  const detail = await getSurveyResponseDetail(surveyId, decodeURIComponent(resId));
   if (!detail) {
     return NextResponse.json({ error: "回答が見つかりません" }, { status: 404 });
   }

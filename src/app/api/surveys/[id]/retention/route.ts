@@ -11,5 +11,5 @@ export async function GET(
 
   const { id } = await params;
   const surveyId = parseInt(id);
-  return NextResponse.json(getRetentionDataset(surveyId));
+  return NextResponse.json(await getRetentionDataset(surveyId));
 }

@@ -2,7 +2,6 @@
 
 import fs from "fs";
 import path from "path";
-import Database from "better-sqlite3";
 
 const DEFAULT_QUESTIONS = [
   { num: 1, area: "safety", areaLabel: "心理的安全性", staffText: "業務上の疑問や気づきを、気軽に口に出せる雰囲気がある", directorText: "スタッフが業務上の疑問や気づきを、気軽に口に出せる雰囲気を作れていると思う" },
@@ -33,7 +32,7 @@ Required:
 
 Optional:
   --director-csv    院長回答CSV
-  --db-path         DBファイルパス（省略時は ./data/survey.db）
+  --db-path         ローカルSQLiteのDBファイルパス（未指定時は TURSO_DATABASE_URL を優先）
   --replace         同名・同実施日のサーベイがあれば質問・回答を削除して再投入
   --activate        seed後に active にする
   --help            このヘルプを表示
@@ -55,96 +54,6 @@ function parseArgs(argv) {
     i += 1;
   }
   return args;
-}
-
-function ensureDir(dirPath) {
-  if (!fs.existsSync(dirPath)) {
-    fs.mkdirSync(dirPath, { recursive: true });
-  }
-}
-
-function getDb(dbPath) {
-  ensureDir(path.dirname(dbPath));
-  const db = new Database(dbPath);
-  db.pragma("journal_mode = WAL");
-  db.pragma("foreign_keys = ON");
-
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS surveys (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      name TEXT NOT NULL,
-      conducted_at DATE NOT NULL,
-      status TEXT NOT NULL DEFAULT 'draft',
-      survey_type TEXT NOT NULL DEFAULT 'clinic',
-      created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-    );
-
-    CREATE TABLE IF NOT EXISTS staff_responses (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      survey_id INTEGER NOT NULL REFERENCES surveys(id) ON DELETE CASCADE,
-      timestamp DATETIME,
-      clinic TEXT NOT NULL,
-      respondent_name TEXT,
-      q1 INTEGER, q2 INTEGER, q3 INTEGER, q4 INTEGER, q5 INTEGER,
-      q6 INTEGER, q7 INTEGER, q8 INTEGER, q9 INTEGER, q10 INTEGER,
-      q11 INTEGER, q12 INTEGER, q13 INTEGER, q14 INTEGER, q15 INTEGER,
-      free_text TEXT
-    );
-
-    CREATE TABLE IF NOT EXISTS director_responses (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      survey_id INTEGER NOT NULL REFERENCES surveys(id) ON DELETE CASCADE,
-      timestamp DATETIME,
-      clinic TEXT NOT NULL,
-      q1 INTEGER, q2 INTEGER, q3 INTEGER, q4 INTEGER, q5 INTEGER,
-      q6 INTEGER, q7 INTEGER, q8 INTEGER, q9 INTEGER, q10 INTEGER,
-      q11 INTEGER, q12 INTEGER, q13 INTEGER, q14 INTEGER, q15 INTEGER,
-      free_text TEXT
-    );
-
-    CREATE TABLE IF NOT EXISTS question_templates (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      survey_id INTEGER NOT NULL REFERENCES surveys(id) ON DELETE CASCADE,
-      num INTEGER NOT NULL,
-      staff_text TEXT NOT NULL DEFAULT '',
-      director_text TEXT NOT NULL DEFAULT '',
-      area TEXT NOT NULL,
-      area_label TEXT NOT NULL DEFAULT '',
-      respondent_type TEXT,
-      text TEXT,
-      short_label TEXT,
-      core_id INTEGER,
-      scale_type TEXT DEFAULT 'agreement',
-      skip_options TEXT
-    );
-
-    CREATE TABLE IF NOT EXISTS responses (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      survey_id INTEGER NOT NULL REFERENCES surveys(id) ON DELETE CASCADE,
-      type TEXT NOT NULL,
-      clinic TEXT NOT NULL DEFAULT '',
-      entity TEXT,
-      respondent_name TEXT,
-      timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-      free_text TEXT,
-      session_token TEXT
-    );
-
-    CREATE TABLE IF NOT EXISTS response_answers (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      response_id INTEGER NOT NULL REFERENCES responses(id) ON DELETE CASCADE,
-      question_id INTEGER NOT NULL REFERENCES question_templates(id) ON DELETE CASCADE,
-      score INTEGER,
-      skip_reason TEXT
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_responses_survey ON responses(survey_id);
-    CREATE INDEX IF NOT EXISTS idx_responses_type ON responses(survey_id, type);
-    CREATE INDEX IF NOT EXISTS idx_response_answers_response ON response_answers(response_id);
-    CREATE INDEX IF NOT EXISTS idx_question_templates_survey ON question_templates(survey_id);
-  `);
-
-  return db;
 }
 
 function cleanCSVText(text) {
@@ -321,76 +230,39 @@ function parseClinicCsv(csvText, surveyId, type) {
   };
 }
 
-function upsertClinicQuestions(db, surveyId) {
-  db.prepare("DELETE FROM question_templates WHERE survey_id = ?").run(surveyId);
-  const insert = db.prepare(`
-    INSERT INTO question_templates (
-      survey_id, num, staff_text, director_text, area, area_label,
-      respondent_type, text, short_label, core_id, scale_type, skip_options
-    ) VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, 'agreement', NULL)
-  `);
+async function upsertClinicQuestions(db, surveyId) {
+  await db.upsertQuestionTemplates(
+    surveyId,
+    DEFAULT_QUESTIONS.map((question) => ({
+      num: question.num,
+      staff_text: question.staffText,
+      director_text: question.directorText,
+      area: question.area,
+      area_label: question.areaLabel,
+      respondent_type: null,
+      text: null,
+      short_label: null,
+      core_id: null,
+      scale_type: "agreement",
+      skip_options: null,
+    }))
+  );
+}
 
-  const tx = db.transaction(() => {
-    for (const question of DEFAULT_QUESTIONS) {
-      insert.run(
-        surveyId,
-        question.num,
-        question.staffText,
-        question.directorText,
-        question.area,
-        question.areaLabel
-      );
-    }
+async function clearSurveyData(db, surveyId) {
+  await db.withTransaction(async (tx) => {
+    await tx.execute({
+      sql: "DELETE FROM response_answers WHERE response_id IN (SELECT id FROM responses WHERE survey_id = ?)",
+      args: [surveyId],
+    });
+    await tx.execute({ sql: "DELETE FROM responses WHERE survey_id = ?", args: [surveyId] });
+    await tx.execute({ sql: "DELETE FROM question_templates WHERE survey_id = ?", args: [surveyId] });
+    await tx.execute({ sql: "DELETE FROM staff_responses WHERE survey_id = ?", args: [surveyId] });
+    await tx.execute({ sql: "DELETE FROM director_responses WHERE survey_id = ?", args: [surveyId] });
   });
-
-  tx();
 }
 
-function clearSurveyData(db, surveyId) {
-  db.prepare("DELETE FROM response_answers WHERE response_id IN (SELECT id FROM responses WHERE survey_id = ?)").run(surveyId);
-  db.prepare("DELETE FROM responses WHERE survey_id = ?").run(surveyId);
-  db.prepare("DELETE FROM question_templates WHERE survey_id = ?").run(surveyId);
-  db.prepare("DELETE FROM staff_responses WHERE survey_id = ?").run(surveyId);
-  db.prepare("DELETE FROM director_responses WHERE survey_id = ?").run(surveyId);
-}
-
-function insertRows(db, table, rows) {
-  if (rows.length === 0) return;
-
-  const insertStaff = db.prepare(`
-    INSERT INTO staff_responses (
-      survey_id, timestamp, clinic, respondent_name,
-      q1,q2,q3,q4,q5,q6,q7,q8,q9,q10,q11,q12,q13,q14,q15, free_text
-    ) VALUES (
-      @survey_id, @timestamp, @clinic, @respondent_name,
-      @q1,@q2,@q3,@q4,@q5,@q6,@q7,@q8,@q9,@q10,@q11,@q12,@q13,@q14,@q15, @free_text
-    )
-  `);
-
-  const insertDirector = db.prepare(`
-    INSERT INTO director_responses (
-      survey_id, timestamp, clinic,
-      q1,q2,q3,q4,q5,q6,q7,q8,q9,q10,q11,q12,q13,q14,q15, free_text
-    ) VALUES (
-      @survey_id, @timestamp, @clinic,
-      @q1,@q2,@q3,@q4,@q5,@q6,@q7,@q8,@q9,@q10,@q11,@q12,@q13,@q14,@q15, @free_text
-    )
-  `);
-
-  const tx = db.transaction(() => {
-    for (const row of rows) {
-      if (table === "staff_responses") {
-        insertStaff.run(row);
-      } else {
-        insertDirector.run(row);
-      }
-    }
-  });
-
-  tx();
-}
-
-function main() {
+async function main() {
   const args = parseArgs(process.argv.slice(2));
   if (args.help) {
     printHelp();
@@ -403,7 +275,7 @@ function main() {
   const directorCsv = args["director-csv"];
   const replace = Boolean(args.replace);
   const activate = Boolean(args.activate);
-  const dbPath = path.resolve(args["db-path"] || path.join(process.cwd(), "data", "survey.db"));
+  const dbPath = args["db-path"] ? path.resolve(args["db-path"]) : null;
 
   if (!name || !conductedAt || !staffCsv) {
     printHelp();
@@ -418,15 +290,19 @@ function main() {
     throw new Error(`院長CSVが見つかりません: ${directorCsv}`);
   }
 
-  const db = getDb(dbPath);
+  if (dbPath) {
+    process.env.SQLITE_DB_PATH = dbPath;
+  }
 
-  const existing = db.prepare(`
+  const db = await import("../src/lib/db.ts");
+
+  const existing = await db.queryOne(`
     SELECT id, status, survey_type
     FROM surveys
     WHERE name = ? AND conducted_at = ?
     ORDER BY id DESC
     LIMIT 1
-  `).get(name, conductedAt);
+  `, [name, conductedAt]);
 
   let surveyId;
   if (existing) {
@@ -434,27 +310,29 @@ function main() {
       throw new Error(`同名・同日のサーベイが既に存在します (id=${existing.id})。再投入する場合は --replace を付けてください`);
     }
     surveyId = existing.id;
-    clearSurveyData(db, surveyId);
-    db.prepare("UPDATE surveys SET survey_type = 'clinic', status = ? WHERE id = ?").run(activate ? "active" : "draft", surveyId);
+    await clearSurveyData(db, surveyId);
+    await db.execute("UPDATE surveys SET survey_type = 'clinic', status = ? WHERE id = ?", [
+      activate ? "active" : "draft",
+      surveyId,
+    ]);
   } else {
-    const result = db.prepare(`
-      INSERT INTO surveys (name, conducted_at, status, survey_type)
-      VALUES (?, ?, ?, 'clinic')
-    `).run(name, conductedAt, activate ? "active" : "draft");
-    surveyId = Number(result.lastInsertRowid);
+    surveyId = await db.createSurvey(name, conductedAt, "clinic");
+    if (activate) {
+      await db.updateSurveyStatus(surveyId, "active");
+    }
   }
 
-  upsertClinicQuestions(db, surveyId);
+  await upsertClinicQuestions(db, surveyId);
 
   const staffResult = parseClinicCsv(readCsvText(staffCsv), surveyId, "staff");
-  insertRows(db, "staff_responses", staffResult.rows);
+  await db.insertStaffResponses(staffResult.rows);
 
   let directorCount = 0;
   let directorMatchedQuestions = 0;
   if (directorCsv) {
     const directorResult = parseClinicCsv(readCsvText(directorCsv), surveyId, "director");
-    db.prepare("DELETE FROM director_responses WHERE survey_id = ?").run(surveyId);
-    insertRows(db, "director_responses", directorResult.rows);
+    await db.execute("DELETE FROM director_responses WHERE survey_id = ?", [surveyId]);
+    await db.insertDirectorResponses(directorResult.rows);
     directorCount = directorResult.rows.length;
     directorMatchedQuestions = directorResult.matchedQuestions;
   }
@@ -465,7 +343,7 @@ function main() {
     name,
     conductedAt,
     status: activate ? "active" : "draft",
-    dbPath,
+    target: process.env.TURSO_DATABASE_URL || dbPath || "file:data/survey.db",
     staffCount: staffResult.rows.length,
     staffMatchedQuestions: staffResult.matchedQuestions,
     directorCount,
@@ -474,7 +352,7 @@ function main() {
 }
 
 try {
-  main();
+  await main();
 } catch (error) {
   console.error(`[seed:first-survey] ${error instanceof Error ? error.message : String(error)}`);
   process.exitCode = 1;

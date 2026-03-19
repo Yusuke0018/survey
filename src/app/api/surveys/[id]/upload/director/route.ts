@@ -16,7 +16,7 @@ export async function POST(
 
   const { id } = await params;
   const surveyId = parseInt(id);
-  const survey = getSurvey(surveyId);
+  const survey = await getSurvey(surveyId);
   if (!survey) {
     return NextResponse.json({ error: "サーベイが見つかりません" }, { status: 404 });
   }
@@ -44,7 +44,7 @@ export async function POST(
     return NextResponse.json({ error: result.errors.join("; ") }, { status: 400 });
   }
 
-  const count = insertDirectorResponses(result.rows);
+  const count = await insertDirectorResponses(result.rows);
   return NextResponse.json({
     count,
     matchedQuestions: result.matchedQuestions,

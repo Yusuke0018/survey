@@ -9,13 +9,13 @@ export async function GET(
 ) {
   const { id } = await params;
   const surveyId = parseInt(id);
-  const survey = getSurvey(surveyId);
+  const survey = await getSurvey(surveyId);
   if (!survey) {
     return NextResponse.json({ error: "Survey not found" }, { status: 404 });
   }
 
   const respondentType = request.nextUrl.searchParams.get("respondentType");
-  const questions = getQuestionTemplates(surveyId, respondentType || undefined);
+  const questions = await getQuestionTemplates(surveyId, respondentType || undefined);
   return NextResponse.json({ survey_type: survey.survey_type, questions });
 }
 
@@ -31,7 +31,7 @@ export async function PUT(
 
   const { id } = await params;
   const surveyId = parseInt(id);
-  const survey = getSurvey(surveyId);
+  const survey = await getSurvey(surveyId);
   if (!survey) {
     return NextResponse.json({ error: "Survey not found" }, { status: 404 });
   }
@@ -40,11 +40,11 @@ export async function PUT(
 
   if (survey.survey_type === "jigyotai" && body.respondent_type) {
     // Save questions for a specific respondent type
-    upsertJigyotaiQuestions(surveyId, body.respondent_type, body.questions);
+    await upsertJigyotaiQuestions(surveyId, body.respondent_type, body.questions);
     return NextResponse.json({ success: true, count: body.questions.length });
   }
 
   // Clinic-style save (all questions at once)
-  upsertQuestionTemplates(surveyId, body.questions);
+  await upsertQuestionTemplates(surveyId, body.questions);
   return NextResponse.json({ success: true, count: body.questions.length });
 }

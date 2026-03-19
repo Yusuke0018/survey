@@ -17,5 +17,5 @@ export async function GET(
     request.nextUrl.searchParams.get("entity") ||
     undefined;
 
-  return NextResponse.json(getSurveyFreeTextItems(surveyId, { type, orgUnit }));
+  return NextResponse.json(await getSurveyFreeTextItems(surveyId, { type, orgUnit }));
 }

@@ -14,7 +14,7 @@ export async function GET(
   const type = request.nextUrl.searchParams.get("type") || "staff";
   const entity = request.nextUrl.searchParams.get("entity") || undefined;
 
-  const scores = getNewScoreAverages(surveyId, type, entity);
+  const scores = await getNewScoreAverages(surveyId, type, entity);
 
   // Group by area for area averages
   const areaMap: Record<string, { scores: number[]; label: string }> = {};

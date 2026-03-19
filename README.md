@@ -23,7 +23,7 @@
 
 ### 設計思想
 - **2種類のサーベイ**: クリニック向け（2者構造）と事業体向け（3者構造）を1つのシステムで統合管理
-- **ゼロインフラ**: SQLiteによるファイルベースDB。外部DB不要
+- **永続DB対応**: ローカルは SQLite、Vercel 本番は Turso/libSQL で永続化
 - **即時分析**: データ投入と同時にダッシュボードで可視化
 - **匿名安全性**: 回答は匿名可。sessionTokenによる重複防止のみ
 - **日本語ファースト**: UI・質問文・分析ラベルすべて日本語
@@ -53,7 +53,7 @@
 | UIコンポーネント | shadcn/ui (Radix UI) | ^1.4.3 |
 | チャート | Recharts | ^3.7.0 |
 | アイコン | Lucide React | ^0.575.0 |
-| データベース | better-sqlite3 | ^12.6.2 |
+| データベース | libSQL/Turso + SQLite(file) | @libsql/client ^0.17.0 |
 | CSV パース | csv-parse | ^6.1.0 |
 | UUID | uuid | ^13.0.0 |
 | アニメーション | tw-animate-css | ^1.4.0 |
@@ -82,19 +82,19 @@
 │  └──────────────┘  └────────────┘                  │
 │                                                     │
 │  ┌──────────────────────────────────────┐          │
-│  │ better-sqlite3 (WAL mode)            │          │
-│  │ data/survey.db                       │          │
+│  │ libSQL / Turso または file:SQLite    │          │
+│  │ TURSO_DATABASE_URL / data/survey.db  │          │
 │  └──────────────────────────────────────┘          │
 └─────────────────────────────────────────────────────┘
 ```
 
 ### アーキテクチャの特徴
 - **App Router**: Next.js 16のApp Routerを使用。ページはすべて `src/app/` 配下
-- **サーバーサイドDB**: better-sqlite3でサーバーサイドのみDB操作。クライアントからはAPI経由
+- **サーバーサイドDB**: `@libsql/client` でサーバーサイドのみDB操作。クライアントからはAPI経由
 - **Cookie認証**: `survey_session` と `survey_role` の2つのHTTP-only cookieで認証管理
 - **Middleware**: Next.js middlewareでルート保護。admin/staffのロールベースアクセス制御
 - **SurveyContext**: React Contextでダッシュボード全体にサーベイID・タイプを共有
-- **データ格納**: ローカルでは `data/survey.db`、Vercelでは `/tmp/survey.db`
+- **データ格納**: ローカルでは `data/survey.db`、Vercel 本番では `TURSO_DATABASE_URL` 経由で Turso を使用
 
 ---
 
@@ -581,6 +581,8 @@ npm run seed:first-survey -- \
 ```
 
 - `--staff-csv` は必須、`--director-csv` は任意
+- `TURSO_DATABASE_URL` / `TURSO_AUTH_TOKEN` があれば Turso へ投入、未設定時はローカル SQLite を使用
+- `--db-path` を付けると投入先をローカル SQLite ファイルに固定可能
 - `--replace` を付けると、同名・同実施日の既存サーベイに対して質問・回答を削除して再投入
 - `--activate` を付けると seed 後に `active` 化
 - 実データCSVや `data/survey.db` 自体は git 管理に含めない
@@ -759,6 +761,9 @@ npm run seed:first-survey -- \
 |---|---|---|
 | `ADMIN_PASSWORD` | 管理者ログインパスワード | `liberalarts` |
 | `STAFF_PASSWORD` | スタッフログインパスワード | `staff` |
+| `TURSO_DATABASE_URL` | Vercel / 本番で使う libSQL 接続先 | - |
+| `TURSO_AUTH_TOKEN` | Turso 接続トークン | - |
+| `SQLITE_DB_PATH` | ローカル SQLite パスを上書きする場合に使用 | `data/survey.db` |
 | `VERCEL` | Vercel環境フラグ（自動設定） | - |
 | `NODE_ENV` | 環境（production でcookieにsecure付与） | `development` |
 
@@ -784,7 +789,7 @@ npm install
 npm run dev
 ```
 
-`http://localhost:3000` でアクセス。初回アクセスで `data/survey.db` が自動作成され、マイグレーションが実行される。
+`http://localhost:3000` でアクセス。`TURSO_DATABASE_URL` 未設定時は初回アクセスで `data/survey.db` が自動作成され、設定済みなら Turso に対してマイグレーションが実行される。
 
 ### ログイン
 - 管理者: パスワード `liberalarts` → ダッシュボード
@@ -809,7 +814,7 @@ npm start
 
 ### Vercel デプロイ
 
-Vercelにデプロイすると、DBは `/tmp/survey.db` に格納される（注意: Vercelのサーバーレス環境では永続化されない）。
+Vercel 本番では `TURSO_DATABASE_URL` と `TURSO_AUTH_TOKEN` を設定し、Turso に永続化する。未設定のままでは `/tmp` の一時 DB にフォールバックし、データは保持されない。
 
 ---
 
@@ -817,7 +822,7 @@ Vercelにデプロイすると、DBは `/tmp/survey.db` に格納される（注
 
 ```
 survey/
-├── data/                              # SQLiteデータベース格納（gitignore推奨）
+├── data/                              # ローカル開発用SQLite格納（gitignore推奨）
 │   └── survey.db
 ├── package.json
 ├── tsconfig.json

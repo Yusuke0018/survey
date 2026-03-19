@@ -19,13 +19,13 @@ export async function GET(
   const clinicName = decodeURIComponent(name);
 
   // Clinic averages
-  const clinicAvg = getClinicAverageScores(surveyId, "staff", clinicName) as Record<string, number | null> & { count: number };
+  const clinicAvg = await getClinicAverageScores(surveyId, "staff", clinicName);
   // Overall averages
-  const overallAvg = getClinicAverageScores(surveyId, "staff") as Record<string, number | null> & { count: number };
+  const overallAvg = await getClinicAverageScores(surveyId, "staff");
   // Individual responses
-  const staffResponses = getClinicNormalizedResponses(surveyId, { type: "staff", clinic: clinicName });
+  const staffResponses = await getClinicNormalizedResponses(surveyId, { type: "staff", clinic: clinicName });
   // Director response
-  const directorResponse = getClinicLatestDirectorByClinic(surveyId).get(clinicName) ?? null;
+  const directorResponse = (await getClinicLatestDirectorByClinic(surveyId)).get(clinicName) ?? null;
 
   // Question scores with comparison
   const questionScores = QUESTIONS.map((q) => {

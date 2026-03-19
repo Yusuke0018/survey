@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
-import { getDb, getSurvey, getNewScoreAverages } from "@/lib/db";
+import { getSurvey, getNewScoreAverages, queryAll, queryOne } from "@/lib/db";
 import { QUESTIONS } from "@/lib/questions";
 import { getClinicAverageScores, getClinicNormalizedResponses } from "@/lib/survey-analytics";
 
@@ -14,20 +14,19 @@ export async function GET(
   const { id } = await params;
   const surveyId = parseInt(id);
 
-  const survey = getSurvey(surveyId);
+  const survey = await getSurvey(surveyId);
   if (!survey) {
     return NextResponse.json({ error: "Survey not found" }, { status: 404 });
   }
 
   // Jigyotai survey summary
   if (survey.survey_type === "jigyotai") {
-    const db = getDb();
-    const staffCount = (db.prepare("SELECT COUNT(*) as c FROM responses WHERE survey_id = ? AND type = 'staff'").get(surveyId) as { c: number }).c;
-    const managerCount = (db.prepare("SELECT COUNT(*) as c FROM responses WHERE survey_id = ? AND type = 'manager'").get(surveyId) as { c: number }).c;
-    const corporateCount = (db.prepare("SELECT COUNT(*) as c FROM responses WHERE survey_id = ? AND type = 'corporate'").get(surveyId) as { c: number }).c;
+    const staffCount = (await queryOne<{ c: number }>("SELECT COUNT(*) as c FROM responses WHERE survey_id = ? AND type = 'staff'", [surveyId]))?.c ?? 0;
+    const managerCount = (await queryOne<{ c: number }>("SELECT COUNT(*) as c FROM responses WHERE survey_id = ? AND type = 'manager'", [surveyId]))?.c ?? 0;
+    const corporateCount = (await queryOne<{ c: number }>("SELECT COUNT(*) as c FROM responses WHERE survey_id = ? AND type = 'corporate'", [surveyId]))?.c ?? 0;
 
     // Get staff score averages
-    const staffScores = getNewScoreAverages(surveyId, "staff");
+    const staffScores = await getNewScoreAverages(surveyId, "staff");
     const validScores = staffScores.filter((s) => s.avg_score != null);
     const overallAvg = validScores.length > 0
       ? validScores.reduce((sum, s) => sum + (s.avg_score || 0), 0) / validScores.length
@@ -42,11 +41,11 @@ export async function GET(
     }
 
     // Get entity list with counts
-    const entities = db.prepare(`
+    const entities = await queryAll<{ entity: string; count: number }>(`
       SELECT entity, COUNT(*) as count FROM responses
       WHERE survey_id = ? AND type = 'staff' AND entity IS NOT NULL
       GROUP BY entity ORDER BY entity
-    `).all(surveyId) as Array<{ entity: string; count: number }>;
+    `, [surveyId]);
 
     return NextResponse.json({
       surveyType: "jigyotai",
@@ -61,9 +60,9 @@ export async function GET(
   }
 
   // Clinic survey summary (original)
-  const staffAvg = getClinicAverageScores(surveyId, "staff");
+  const staffAvg = await getClinicAverageScores(surveyId, "staff");
   const staffCount = staffAvg.count;
-  const directorCount = getClinicNormalizedResponses(surveyId, { type: "director" }).length;
+  const directorCount = (await getClinicNormalizedResponses(surveyId, { type: "director" })).length;
 
   const scores: number[] = [];
   let highestQ = { num: 0, score: 0, area: "" };

@@ -11,7 +11,7 @@ export async function GET(
   if (authError) return authError;
 
   const { id } = await params;
-  const survey = getSurvey(parseInt(id));
+  const survey = await getSurvey(parseInt(id));
   if (!survey) {
     return NextResponse.json({ error: "サーベイが見つかりません" }, { status: 404 });
   }
@@ -30,7 +30,7 @@ export async function PATCH(
 
   const { id } = await params;
   const surveyId = parseInt(id);
-  const survey = getSurvey(surveyId);
+  const survey = await getSurvey(surveyId);
   if (!survey) {
     return NextResponse.json({ error: "サーベイが見つかりません" }, { status: 404 });
   }
@@ -40,7 +40,7 @@ export async function PATCH(
     return NextResponse.json({ error: "無効なステータスです" }, { status: 400 });
   }
 
-  updateSurveyStatus(surveyId, status);
+  await updateSurveyStatus(surveyId, status);
   return NextResponse.json({ success: true });
 }
 
@@ -55,6 +55,6 @@ export async function DELETE(
   if (storageError) return storageError;
 
   const { id } = await params;
-  deleteSurvey(parseInt(id));
+  await deleteSurvey(parseInt(id));
   return NextResponse.json({ success: true });
 }

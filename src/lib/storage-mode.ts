@@ -5,6 +5,10 @@ const IS_VERCEL = !!process.env.VERCEL;
 export type StorageMode = "persistent-sqlite" | "ephemeral-vercel-tmp";
 
 export function getStorageMode(): StorageMode {
+  if (process.env.TURSO_DATABASE_URL) {
+    return "persistent-sqlite";
+  }
+
   if (IS_VERCEL && !process.env.SQLITE_DB_PATH) {
     return "ephemeral-vercel-tmp";
   }

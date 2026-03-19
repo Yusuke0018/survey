@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
-import { getDb } from "@/lib/db";
+import { queryAll } from "@/lib/db";
 
 export async function GET(
   _request: NextRequest,
@@ -11,43 +11,50 @@ export async function GET(
 
   const { id } = await params;
   const surveyId = parseInt(id);
-  const db = getDb();
 
   // Get all skip-eligible questions (those with skip_options set)
-  const questions = db.prepare(`
+  const questions = await queryAll<{
+    id: number;
+    num: number;
+    text: string;
+    short_label: string;
+    area: string;
+    respondent_type: string;
+    skip_options: string;
+  }>(`
     SELECT id, num, text, short_label, area, respondent_type, skip_options
     FROM question_templates
     WHERE survey_id = ? AND skip_options IS NOT NULL AND skip_options != ''
     ORDER BY respondent_type, num
-  `).all(surveyId) as Array<{
-    id: number; num: number; text: string; short_label: string;
-    area: string; respondent_type: string; skip_options: string;
-  }>;
+  `, [surveyId]);
 
   // Get entities
-  const entities = db.prepare(`
+  const entities = await queryAll<{ entity: string }>(`
     SELECT DISTINCT entity FROM responses
     WHERE survey_id = ? AND entity IS NOT NULL
     ORDER BY entity
-  `).all(surveyId) as Array<{ entity: string }>;
+  `, [surveyId]);
 
   // Get skip counts per entity per question
-  const skipData = db.prepare(`
+  const skipData = await queryAll<{
+    entity: string;
+    question_id: number;
+    skip_reason: string;
+    count: number;
+  }>(`
     SELECT r.entity, ra.question_id, ra.skip_reason, COUNT(*) as count
     FROM response_answers ra
     JOIN responses r ON ra.response_id = r.id
     WHERE r.survey_id = ? AND ra.skip_reason IS NOT NULL AND r.entity IS NOT NULL
     GROUP BY r.entity, ra.question_id, ra.skip_reason
-  `).all(surveyId) as Array<{
-    entity: string; question_id: number; skip_reason: string; count: number;
-  }>;
+  `, [surveyId]);
 
   // Get total response counts per entity per respondent type
-  const responseCounts = db.prepare(`
+  const responseCounts = await queryAll<{ entity: string; type: string; count: number }>(`
     SELECT entity, type, COUNT(*) as count FROM responses
     WHERE survey_id = ? AND entity IS NOT NULL
     GROUP BY entity, type
-  `).all(surveyId) as Array<{ entity: string; type: string; count: number }>;
+  `, [surveyId]);
 
   // Build skip map: entity -> question_id -> { reason: count }
   const skipMap: Record<string, Record<number, Record<string, number>>> = {};

@@ -7,7 +7,7 @@ export async function GET() {
   const authError = await requireAdmin();
   if (authError) return authError;
 
-  const surveys = getAllSurveys();
+  const surveys = await getAllSurveys();
   return NextResponse.json(surveys);
 }
 
@@ -23,6 +23,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "名前と実施日は必須です" }, { status: 400 });
   }
 
-  const id = createSurvey(name, conducted_at, survey_type || "clinic");
+  const id = await createSurvey(name, conducted_at, survey_type || "clinic");
   return NextResponse.json({ id, name, conducted_at, survey_type: survey_type || "clinic" });
 }

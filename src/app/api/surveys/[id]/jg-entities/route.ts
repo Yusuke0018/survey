@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
-import { getDb, getNewScoreAverages } from "@/lib/db";
+import { getNewScoreAverages, queryAll } from "@/lib/db";
 
 export async function GET(
   _request: NextRequest,
@@ -11,25 +11,24 @@ export async function GET(
 
   const { id } = await params;
   const surveyId = parseInt(id);
-  const db = getDb();
 
   // Get all entities with staff responses
-  const entities = db.prepare(`
+  const entities = await queryAll<{ entity: string; staff_count: number }>(`
     SELECT entity, COUNT(*) as staff_count FROM responses
     WHERE survey_id = ? AND type = 'staff' AND entity IS NOT NULL
     GROUP BY entity ORDER BY entity
-  `).all(surveyId) as Array<{ entity: string; staff_count: number }>;
+  `, [surveyId]);
 
   // Check for manager/corporate responses per entity
-  const managerCounts = db.prepare(`
+  const managerCounts = await queryAll<{ entity: string; count: number }>(`
     SELECT entity, COUNT(*) as count FROM responses
     WHERE survey_id = ? AND type = 'manager' AND entity IS NOT NULL
     GROUP BY entity
-  `).all(surveyId) as Array<{ entity: string; count: number }>;
+  `, [surveyId]);
   const managerMap = new Map(managerCounts.map((m) => [m.entity, m.count]));
 
-  const result = entities.map((e) => {
-    const scores = getNewScoreAverages(surveyId, "staff", e.entity);
+  const result = await Promise.all(entities.map(async (e) => {
+    const scores = await getNewScoreAverages(surveyId, "staff", e.entity);
     const validScores = scores.filter((s) => s.avg_score != null);
     const overallAvg = validScores.length > 0
       ? validScores.reduce((sum, s) => sum + (s.avg_score || 0), 0) / validScores.length
@@ -65,7 +64,7 @@ export async function GET(
       areaAverages,
       alertItems,
     };
-  });
+  }));
 
   return NextResponse.json(result);
 }

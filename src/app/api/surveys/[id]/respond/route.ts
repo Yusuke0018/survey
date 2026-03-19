@@ -12,7 +12,7 @@ export async function POST(
   const { id } = await params;
   const surveyId = parseInt(id);
 
-  const survey = getSurvey(surveyId);
+  const survey = await getSurvey(surveyId);
   if (!survey || survey.status !== "active") {
     return NextResponse.json({ error: "このサーベイは現在回答を受け付けていません" }, { status: 400 });
   }
@@ -41,11 +41,11 @@ export async function POST(
   // Check duplicate (corporate planning can submit per entity)
   if (sessionToken) {
     if (type === "corporate") {
-      if (hasSubmitted(surveyId, sessionToken, entity)) {
+      if (await hasSubmitted(surveyId, sessionToken, entity)) {
         return NextResponse.json({ error: "この事業体にはすでに回答済みです" }, { status: 400 });
       }
     } else {
-      if (hasSubmitted(surveyId, sessionToken)) {
+      if (await hasSubmitted(surveyId, sessionToken)) {
         return NextResponse.json({ error: "このサーベイには既に回答済みです" }, { status: 400 });
       }
     }
@@ -53,7 +53,7 @@ export async function POST(
 
   // Validate question IDs
   const rType = survey.survey_type === "jigyotai" ? type : undefined;
-  const questions = getQuestionTemplates(surveyId, rType);
+  const questions = await getQuestionTemplates(surveyId, rType);
   const validIds = new Set(questions.map(q => q.id));
   for (const a of answers) {
     if (!validIds.has(a.questionId)) {
@@ -65,7 +65,7 @@ export async function POST(
     }
   }
 
-  const responseId = submitResponse({
+  const responseId = await submitResponse({
     surveyId,
     type,
     clinic: survey.survey_type === "clinic" ? orgUnit : "",

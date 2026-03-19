@@ -7,7 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "seed:first-survey": "node scripts/seed-first-survey.mjs"
+    "seed:first-survey": "node --experimental-strip-types scripts/seed-first-survey.mjs"
   },
   "dependencies": {
     "@libsql/client": "^0.17.0",

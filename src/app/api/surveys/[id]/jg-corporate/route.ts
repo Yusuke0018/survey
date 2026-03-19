@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
-import { getDb, getNewScoreAverages } from "@/lib/db";
+import { getNewScoreAverages, queryAll } from "@/lib/db";
 
 export async function GET(
   _request: NextRequest,
@@ -11,25 +11,24 @@ export async function GET(
 
   const { id } = await params;
   const surveyId = parseInt(id);
-  const db = getDb();
 
   // Get entities that have corporate responses
-  const entities = db.prepare(`
+  const entities = await queryAll<{ entity: string }>(`
     SELECT DISTINCT entity FROM responses
     WHERE survey_id = ? AND type = 'corporate' AND entity IS NOT NULL
     ORDER BY entity
-  `).all(surveyId) as Array<{ entity: string }>;
+  `, [surveyId]);
 
   // Overall corporate averages (all entities)
-  const overallScores = getNewScoreAverages(surveyId, "corporate");
+  const overallScores = await getNewScoreAverages(surveyId, "corporate");
   const overallValid = overallScores.filter((s) => s.avg_score != null);
   const overallAvg = overallValid.length > 0
     ? Math.round((overallValid.reduce((sum, s) => sum + (s.avg_score || 0), 0) / overallValid.length) * 100) / 100
     : 0;
 
   // Per-entity corporate scores
-  const entityData = entities.map((e) => {
-    const scores = getNewScoreAverages(surveyId, "corporate", e.entity);
+  const entityData = await Promise.all(entities.map(async (e) => {
+    const scores = await getNewScoreAverages(surveyId, "corporate", e.entity);
     const validScores = scores.filter((s) => s.avg_score != null);
     const avg = validScores.length > 0
       ? Math.round((validScores.reduce((sum, s) => sum + (s.avg_score || 0), 0) / validScores.length) * 100) / 100
@@ -49,10 +48,10 @@ export async function GET(
     }));
 
     // Get free text comments
-    const comments = db.prepare(`
+    const comments = await queryAll<{ free_text: string }>(`
       SELECT free_text FROM responses
       WHERE survey_id = ? AND type = 'corporate' AND entity = ? AND free_text IS NOT NULL AND free_text != ''
-    `).all(surveyId, e.entity) as Array<{ free_text: string }>;
+    `, [surveyId, e.entity]);
 
     return {
       entity: e.entity,
@@ -66,14 +65,14 @@ export async function GET(
       })),
       comments: comments.map((c) => c.free_text),
     };
-  });
+  }));
 
   // All corporate free text
-  const allComments = db.prepare(`
+  const allComments = await queryAll<{ entity: string; free_text: string }>(`
     SELECT r.entity, r.free_text FROM responses r
     WHERE r.survey_id = ? AND r.type = 'corporate' AND r.free_text IS NOT NULL AND r.free_text != ''
     ORDER BY r.entity
-  `).all(surveyId) as Array<{ entity: string; free_text: string }>;
+  `, [surveyId]);
 
   return NextResponse.json({
     overallAvg,

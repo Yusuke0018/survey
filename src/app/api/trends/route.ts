@@ -15,15 +15,12 @@ export async function GET(request: NextRequest) {
 
   const ids = idsParam.split(",").map((s) => parseInt(s.trim())).filter((n) => !isNaN(n));
 
-  const trends = ids.map((surveyId) => {
-    const survey = getSurvey(surveyId);
+  const trends = (await Promise.all(ids.map(async (surveyId) => {
+    const survey = await getSurvey(surveyId);
     if (!survey) return null;
 
-    const avg = getClinicAverageScores(surveyId, "staff") as Record<string, number | null> & { count: number };
-    const clinicAverages = getClinicStaffAveragesByClinic(surveyId) as Array<Record<string, number | null> & {
-      clinic: string;
-      count: number;
-    }>;
+    const avg = await getClinicAverageScores(surveyId, "staff");
+    const clinicAverages = await getClinicStaffAveragesByClinic(surveyId);
 
     const areaAverages = AREA_ORDER.map((key) => {
       const areaQuestions = QUESTIONS.filter((q) => q.area === key);
@@ -51,7 +48,7 @@ export async function GET(request: NextRequest) {
       areaAverages,
       clinicScores,
     };
-  }).filter(Boolean);
+  }))).filter(Boolean);
 
   return NextResponse.json(trends);
 }

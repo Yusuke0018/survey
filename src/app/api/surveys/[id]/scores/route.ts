@@ -12,7 +12,7 @@ export async function GET(
 
   const { id } = await params;
   const surveyId = parseInt(id);
-  const avg = getClinicAverageScores(surveyId, "staff");
+  const avg = await getClinicAverageScores(surveyId, "staff");
 
   const scores = QUESTIONS.map((q) => ({
     id: q.id,

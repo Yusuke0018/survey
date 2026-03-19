@@ -13,11 +13,8 @@ export async function GET(
   const { id } = await params;
   const surveyId = parseInt(id);
 
-  const clinicAverages = getClinicStaffAveragesByClinic(surveyId) as Array<Record<string, number | null> & {
-    clinic: string;
-    count: number;
-  }>;
-  const directorByClinic = getClinicLatestDirectorByClinic(surveyId);
+  const clinicAverages = await getClinicStaffAveragesByClinic(surveyId);
+  const directorByClinic = await getClinicLatestDirectorByClinic(surveyId);
 
   const gaps = clinicAverages
     .filter((ca) => directorByClinic.has(ca.clinic))

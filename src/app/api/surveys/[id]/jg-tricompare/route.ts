@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
-import { getDb, getNewScoreAverages } from "@/lib/db";
+import { getNewScoreAverages, queryAll } from "@/lib/db";
 
 export async function GET(
   _request: NextRequest,
@@ -11,19 +11,18 @@ export async function GET(
 
   const { id } = await params;
   const surveyId = parseInt(id);
-  const db = getDb();
 
   // Get all entities
-  const entities = db.prepare(`
+  const entities = await queryAll<{ entity: string }>(`
     SELECT DISTINCT entity FROM responses
     WHERE survey_id = ? AND entity IS NOT NULL
     ORDER BY entity
-  `).all(surveyId) as Array<{ entity: string }>;
+  `, [surveyId]);
 
-  const result = entities.map((e) => {
-    const staffScores = getNewScoreAverages(surveyId, "staff", e.entity);
-    const managerScores = getNewScoreAverages(surveyId, "manager", e.entity);
-    const corporateScores = getNewScoreAverages(surveyId, "corporate", e.entity);
+  const result = await Promise.all(entities.map(async (e) => {
+    const staffScores = await getNewScoreAverages(surveyId, "staff", e.entity);
+    const managerScores = await getNewScoreAverages(surveyId, "manager", e.entity);
+    const corporateScores = await getNewScoreAverages(surveyId, "corporate", e.entity);
 
     // Build manager score map by coreId (maps to staff question num)
     const managerByCoreId = new Map(
@@ -75,7 +74,7 @@ export async function GET(
       corporateAvg,
       comparisons,
     };
-  });
+  }));
 
   return NextResponse.json(result);
 }

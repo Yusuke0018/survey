@@ -1,10 +1,9 @@
 import { QUESTIONS, getShortLabel } from "@/lib/questions";
-import { getDb, getSurvey, type SurveyType } from "@/lib/db";
+import { getSurvey, queryAll, queryOne, type SurveyType } from "@/lib/db";
 
 type ClinicResponseType = "staff" | "director";
 type JigyotaiResponseType = "staff" | "manager" | "corporate";
 export type SurveyResponseType = ClinicResponseType | JigyotaiResponseType;
-
 type ClinicAnswerKey = (typeof QUESTIONS)[number]["id"];
 
 interface ClinicLegacyRow extends Record<string, unknown> {
@@ -99,13 +98,24 @@ export interface RetentionPoint {
   level: "critical" | "warning-manager" | "warning-other" | "good";
 }
 
+export type ClinicAverageScores = Record<ClinicAnswerKey, number | null> & { count: number };
+export type ClinicAveragesByClinicRow = Record<ClinicAnswerKey, number | null> & {
+  clinic: string;
+  count: number;
+};
+
+function round2(value: number) {
+  return Math.round(value * 100) / 100;
+}
+
 function createClinicAnswerMap<T>(value: T): Record<ClinicAnswerKey, T> {
-  return Object.fromEntries(QUESTIONS.map((q) => [q.id, value])) as Record<ClinicAnswerKey, T>;
+  return Object.fromEntries(QUESTIONS.map((question) => [question.id, value])) as Record<ClinicAnswerKey, T>;
 }
 
 function sortTimestampDesc(a: { timestamp: string | null; rawId?: number }, b: { timestamp: string | null; rawId?: number }) {
   const aTime = a.timestamp ? Date.parse(a.timestamp) : Number.NaN;
   const bTime = b.timestamp ? Date.parse(b.timestamp) : Number.NaN;
+
   if (!Number.isNaN(aTime) && !Number.isNaN(bTime) && aTime !== bTime) {
     return bTime - aTime;
   }
@@ -117,9 +127,10 @@ function sortTimestampDesc(a: { timestamp: string | null; rawId?: number }, b: {
 function normalizeClinicLegacyRows(rows: ClinicLegacyRow[], type: ClinicResponseType): ClinicNormalizedResponse[] {
   return rows.map((row) => {
     const answers = createClinicAnswerMap<number | null>(null);
-    for (const q of QUESTIONS) {
-      answers[q.id] = (row[q.id] as number | null) ?? null;
+    for (const question of QUESTIONS) {
+      answers[question.id] = (row[question.id] as number | null) ?? null;
     }
+
     return {
       key: `legacy-${type}-${row.id}`,
       source: "legacy",
@@ -135,18 +146,17 @@ function normalizeClinicLegacyRows(rows: ClinicLegacyRow[], type: ClinicResponse
   });
 }
 
-function getClinicLegacyResponses(surveyId: number, type: ClinicResponseType, clinic?: string): ClinicNormalizedResponse[] {
-  const db = getDb();
+async function getClinicLegacyResponses(surveyId: number, type: ClinicResponseType, clinic?: string) {
   const table = type === "staff" ? "staff_responses" : "director_responses";
-  const rows = (clinic
-    ? db.prepare(`SELECT * FROM ${table} WHERE survey_id = ? AND clinic = ?`).all(surveyId, clinic)
-    : db.prepare(`SELECT * FROM ${table} WHERE survey_id = ?`).all(surveyId)) as ClinicLegacyRow[];
+  const sql = clinic
+    ? `SELECT * FROM ${table} WHERE survey_id = ? AND clinic = ?`
+    : `SELECT * FROM ${table} WHERE survey_id = ?`;
+  const args = clinic ? [surveyId, clinic] : [surveyId];
+  const rows = await queryAll<ClinicLegacyRow>(sql, args);
   return normalizeClinicLegacyRows(rows, type);
 }
 
-function getClinicNewResponses(surveyId: number, type?: ClinicResponseType, clinic?: string): ClinicNormalizedResponse[] {
-  const db = getDb();
-
+async function getClinicNewResponses(surveyId: number, type?: ClinicResponseType, clinic?: string) {
   let sql = `
     SELECT
       r.id as response_id,
@@ -165,21 +175,21 @@ function getClinicNewResponses(surveyId: number, type?: ClinicResponseType, clin
       AND r.entity IS NULL
       AND r.type IN ('staff', 'director')
   `;
-  const params: Array<string | number> = [surveyId];
+  const args: Array<string | number> = [surveyId];
 
   if (type) {
     sql += " AND r.type = ?";
-    params.push(type);
+    args.push(type);
   }
 
   if (clinic) {
     sql += " AND r.clinic = ?";
-    params.push(clinic);
+    args.push(clinic);
   }
 
   sql += " ORDER BY r.id, qt.num";
 
-  const rows = db.prepare(sql).all(...params) as ClinicNewAnswerRow[];
+  const rows = await queryAll<ClinicNewAnswerRow>(sql, args);
   const grouped = new Map<number, ClinicNormalizedResponse>();
 
   for (const row of rows) {
@@ -200,7 +210,7 @@ function getClinicNewResponses(surveyId: number, type?: ClinicResponseType, clin
       grouped.set(row.response_id, response);
     }
 
-    const question = QUESTIONS.find((q) => q.num === row.num);
+    const question = QUESTIONS.find((item) => item.num === row.num);
     if (!question) continue;
     response.answers[question.id] = row.score;
     response.skipReasons[question.id] = row.skip_reason;
@@ -209,45 +219,45 @@ function getClinicNewResponses(surveyId: number, type?: ClinicResponseType, clin
   return [...grouped.values()];
 }
 
-export function getClinicNormalizedResponses(
+export async function getClinicNormalizedResponses(
   surveyId: number,
   options?: { type?: ClinicResponseType; clinic?: string }
-): ClinicNormalizedResponse[] {
+) {
   const type = options?.type;
   const clinic = options?.clinic;
 
   const legacy = type
-    ? getClinicLegacyResponses(surveyId, type, clinic)
+    ? await getClinicLegacyResponses(surveyId, type, clinic)
     : [
-        ...getClinicLegacyResponses(surveyId, "staff", clinic),
-        ...getClinicLegacyResponses(surveyId, "director", clinic),
+        ...(await getClinicLegacyResponses(surveyId, "staff", clinic)),
+        ...(await getClinicLegacyResponses(surveyId, "director", clinic)),
       ];
-  const current = getClinicNewResponses(surveyId, type, clinic);
+  const current = await getClinicNewResponses(surveyId, type, clinic);
 
   return [...legacy, ...current].sort(sortTimestampDesc);
 }
 
-export function getClinicAverageScores(
+export async function getClinicAverageScores(
   surveyId: number,
   type: ClinicResponseType,
   clinic?: string
-): Record<ClinicAnswerKey, number | null> & { count: number } {
-  const responses = getClinicNormalizedResponses(surveyId, { type, clinic });
+): Promise<ClinicAverageScores> {
+  const responses = await getClinicNormalizedResponses(surveyId, { type, clinic });
   const totals = createClinicAnswerMap<number>(0);
   const counts = createClinicAnswerMap<number>(0);
 
   for (const response of responses) {
-    for (const q of QUESTIONS) {
-      const value = response.answers[q.id];
+    for (const question of QUESTIONS) {
+      const value = response.answers[question.id];
       if (value == null) continue;
-      totals[q.id] += value;
-      counts[q.id] += 1;
+      totals[question.id] += value;
+      counts[question.id] += 1;
     }
   }
 
   const averages = createClinicAnswerMap<number | null>(null);
-  for (const q of QUESTIONS) {
-    averages[q.id] = counts[q.id] > 0 ? totals[q.id] / counts[q.id] : null;
+  for (const question of QUESTIONS) {
+    averages[question.id] = counts[question.id] > 0 ? totals[question.id] / counts[question.id] : null;
   }
 
   return {
@@ -256,8 +266,8 @@ export function getClinicAverageScores(
   };
 }
 
-export function getClinicStaffAveragesByClinic(surveyId: number) {
-  const responses = getClinicNormalizedResponses(surveyId, { type: "staff" });
+export async function getClinicStaffAveragesByClinic(surveyId: number) {
+  const responses = await getClinicNormalizedResponses(surveyId, { type: "staff" });
   const grouped = new Map<string, ClinicNormalizedResponse[]>();
 
   for (const response of responses) {
@@ -272,17 +282,17 @@ export function getClinicStaffAveragesByClinic(surveyId: number) {
       const counts = createClinicAnswerMap<number>(0);
 
       for (const response of clinicResponses) {
-        for (const q of QUESTIONS) {
-          const value = response.answers[q.id];
+        for (const question of QUESTIONS) {
+          const value = response.answers[question.id];
           if (value == null) continue;
-          totals[q.id] += value;
-          counts[q.id] += 1;
+          totals[question.id] += value;
+          counts[question.id] += 1;
         }
       }
 
       const averages = createClinicAnswerMap<number | null>(null);
-      for (const q of QUESTIONS) {
-        averages[q.id] = counts[q.id] > 0 ? totals[q.id] / counts[q.id] : null;
+      for (const question of QUESTIONS) {
+        averages[question.id] = counts[question.id] > 0 ? totals[question.id] / counts[question.id] : null;
       }
 
       return {
@@ -291,11 +301,11 @@ export function getClinicStaffAveragesByClinic(surveyId: number) {
         ...averages,
       };
     })
-    .sort((a, b) => a.clinic.localeCompare(b.clinic, "ja"));
+    .sort((a, b) => a.clinic.localeCompare(b.clinic, "ja")) as ClinicAveragesByClinicRow[];
 }
 
-export function getClinicLatestDirectorByClinic(surveyId: number) {
-  const responses = getClinicNormalizedResponses(surveyId, { type: "director" });
+export async function getClinicLatestDirectorByClinic(surveyId: number) {
+  const responses = await getClinicNormalizedResponses(surveyId, { type: "director" });
   const latest = new Map<string, ClinicNormalizedResponse>();
 
   for (const response of responses) {
@@ -321,12 +331,10 @@ function getSurveyResponseTypeLabel(type: SurveyResponseType) {
   }
 }
 
-function summarizeAnswers(
-  answers: Array<{ num: number; score: number | null }>
-): { avgScore: number; lowestQuestion: string | null; lowestScore: number | null } {
+function summarizeAnswers(answers: Array<{ num: number; score: number | null }>) {
   const valid = answers.filter((answer) => answer.score != null);
   const avgScore = valid.length > 0
-    ? Math.round((valid.reduce((sum, answer) => sum + (answer.score ?? 0), 0) / valid.length) * 100) / 100
+    ? round2(valid.reduce((sum, answer) => sum + (answer.score ?? 0), 0) / valid.length)
     : 0;
 
   const lowest = valid.reduce<{ num: number; score: number } | null>((min, answer) => {
@@ -345,8 +353,9 @@ function summarizeAnswers(
 }
 
 function buildClinicResponseSummary(response: ClinicNormalizedResponse): SurveyResponseSummary {
-  const scores = QUESTIONS.map((q) => ({ num: q.num, score: response.answers[q.id] }));
+  const scores = QUESTIONS.map((question) => ({ num: question.num, score: response.answers[question.id] }));
   const summary = summarizeAnswers(scores);
+
   return {
     key: response.key,
     respondentType: response.type,
@@ -362,12 +371,10 @@ function buildClinicResponseSummary(response: ClinicNormalizedResponse): SurveyR
   };
 }
 
-function getJigyotaiResponseSummaries(
+async function getJigyotaiResponseSummaries(
   surveyId: number,
   options?: { type?: JigyotaiResponseType; entity?: string }
-): SurveyResponseSummary[] {
-  const db = getDb();
-
+) {
   let sql = `
     SELECT
       r.id as response_id,
@@ -384,21 +391,21 @@ function getJigyotaiResponseSummaries(
     WHERE r.survey_id = ?
       AND r.entity IS NOT NULL
   `;
-  const params: Array<string | number> = [surveyId];
+  const args: Array<string | number> = [surveyId];
 
   if (options?.type) {
     sql += " AND r.type = ?";
-    params.push(options.type);
+    args.push(options.type);
   }
 
   if (options?.entity) {
     sql += " AND r.entity = ?";
-    params.push(options.entity);
+    args.push(options.entity);
   }
 
   sql += " ORDER BY r.id, qt.num";
 
-  const rows = db.prepare(sql).all(...params) as Array<{
+  const rows = await queryAll<{
     response_id: number;
     type: JigyotaiResponseType;
     entity: string;
@@ -407,7 +414,7 @@ function getJigyotaiResponseSummaries(
     free_text: string | null;
     num: number;
     score: number | null;
-  }>;
+  }>(sql, args);
 
   const grouped = new Map<number, {
     type: JigyotaiResponseType;
@@ -454,19 +461,18 @@ function getJigyotaiResponseSummaries(
     });
 }
 
-export function getSurveyResponseSummaries(
+export async function getSurveyResponseSummaries(
   surveyId: number,
   options?: { type?: SurveyResponseType; orgUnit?: string }
-): SurveyResponseSummary[] {
-  const survey = getSurvey(surveyId);
+) {
+  const survey = await getSurvey(surveyId);
   if (!survey) return [];
 
   if (survey.survey_type === "clinic") {
-    const clinicType = options?.type as ClinicResponseType | undefined;
-    return getClinicNormalizedResponses(surveyId, {
-      type: clinicType,
+    return (await getClinicNormalizedResponses(surveyId, {
+      type: options?.type as ClinicResponseType | undefined,
       clinic: options?.orgUnit,
-    }).map(buildClinicResponseSummary);
+    })).map(buildClinicResponseSummary);
   }
 
   return getJigyotaiResponseSummaries(surveyId, {
@@ -475,8 +481,8 @@ export function getSurveyResponseSummaries(
   });
 }
 
-function buildClinicDetail(response: ClinicNormalizedResponse, surveyId: number): SurveyResponseDetail {
-  const benchmark = getClinicAverageScores(surveyId, response.type, response.clinic);
+async function buildClinicDetail(response: ClinicNormalizedResponse, surveyId: number): Promise<SurveyResponseDetail> {
+  const benchmark = await getClinicAverageScores(surveyId, response.type, response.clinic);
   const questions = QUESTIONS.map((question) => {
     const value = response.answers[question.id];
     const benchmarkValue = benchmark[question.id];
@@ -489,8 +495,8 @@ function buildClinicDetail(response: ClinicNormalizedResponse, surveyId: number)
       areaLabel: question.areaLabel,
       value,
       skipReason: response.skipReasons[question.id],
-      benchmark: benchmarkValue != null ? Math.round(benchmarkValue * 100) / 100 : null,
-      diff: value != null && benchmarkValue != null ? Math.round((value - benchmarkValue) * 100) / 100 : null,
+      benchmark: benchmarkValue != null ? round2(benchmarkValue) : null,
+      diff: value != null && benchmarkValue != null ? round2(value - benchmarkValue) : null,
     };
   });
 
@@ -510,38 +516,26 @@ function buildClinicDetail(response: ClinicNormalizedResponse, surveyId: number)
   };
 }
 
-function buildJigyotaiDetail(responseId: number, surveyId: number): SurveyResponseDetail | null {
-  const db = getDb();
-  const response = db.prepare(`
-    SELECT id, type, entity, respondent_name, timestamp, free_text
-    FROM responses
-    WHERE id = ? AND survey_id = ? AND entity IS NOT NULL
-  `).get(responseId, surveyId) as {
+async function buildJigyotaiDetail(responseId: number, surveyId: number): Promise<SurveyResponseDetail | null> {
+  const response = await queryOne<{
     id: number;
     type: JigyotaiResponseType;
     entity: string;
     respondent_name: string | null;
     timestamp: string | null;
     free_text: string | null;
-  } | undefined;
+  }>(
+    `
+      SELECT id, type, entity, respondent_name, timestamp, free_text
+      FROM responses
+      WHERE id = ? AND survey_id = ? AND entity IS NOT NULL
+    `,
+    [responseId, surveyId]
+  );
 
   if (!response) return null;
 
-  const answers = db.prepare(`
-    SELECT
-      qt.id as question_id,
-      qt.num,
-      qt.text,
-      qt.short_label,
-      qt.area,
-      qt.area_label,
-      ra.score,
-      ra.skip_reason
-    FROM response_answers ra
-    JOIN question_templates qt ON qt.id = ra.question_id
-    WHERE ra.response_id = ?
-    ORDER BY qt.num
-  `).all(responseId) as Array<{
+  const answers = await queryAll<{
     question_id: number;
     num: number;
     text: string | null;
@@ -550,16 +544,36 @@ function buildJigyotaiDetail(responseId: number, surveyId: number): SurveyRespon
     area_label: string;
     score: number | null;
     skip_reason: string | null;
-  }>;
+  }>(
+    `
+      SELECT
+        qt.id as question_id,
+        qt.num,
+        qt.text,
+        qt.short_label,
+        qt.area,
+        qt.area_label,
+        ra.score,
+        ra.skip_reason
+      FROM response_answers ra
+      JOIN question_templates qt ON qt.id = ra.question_id
+      WHERE ra.response_id = ?
+      ORDER BY qt.num
+    `,
+    [responseId]
+  );
 
-  const benchmarkRows = db.prepare(`
-    SELECT qt.num, AVG(ra.score) as avg_score
-    FROM response_answers ra
-    JOIN responses r ON r.id = ra.response_id
-    JOIN question_templates qt ON qt.id = ra.question_id
-    WHERE r.survey_id = ? AND r.type = ? AND r.entity = ?
-    GROUP BY qt.num
-  `).all(surveyId, response.type, response.entity) as Array<{ num: number; avg_score: number | null }>;
+  const benchmarkRows = await queryAll<{ num: number; avg_score: number | null }>(
+    `
+      SELECT qt.num, AVG(ra.score) as avg_score
+      FROM response_answers ra
+      JOIN responses r ON r.id = ra.response_id
+      JOIN question_templates qt ON qt.id = ra.question_id
+      WHERE r.survey_id = ? AND r.type = ? AND r.entity = ?
+      GROUP BY qt.num
+    `,
+    [surveyId, response.type, response.entity]
+  );
   const benchmarkMap = new Map(benchmarkRows.map((row) => [row.num, row.avg_score]));
 
   const questions = answers.map((answer) => {
@@ -573,8 +587,8 @@ function buildJigyotaiDetail(responseId: number, surveyId: number): SurveyRespon
       areaLabel: answer.area_label || answer.area,
       value: answer.score,
       skipReason: answer.skip_reason,
-      benchmark: benchmark != null ? Math.round(benchmark * 100) / 100 : null,
-      diff: answer.score != null && benchmark != null ? Math.round((answer.score - benchmark) * 100) / 100 : null,
+      benchmark: benchmark != null ? round2(benchmark) : null,
+      diff: answer.score != null && benchmark != null ? round2(answer.score - benchmark) : null,
     };
   });
 
@@ -594,71 +608,60 @@ function buildJigyotaiDetail(responseId: number, surveyId: number): SurveyRespon
   };
 }
 
-export function getSurveyResponseDetail(surveyId: number, responseKey: string): SurveyResponseDetail | null {
-  const survey = getSurvey(surveyId);
+export async function getSurveyResponseDetail(surveyId: number, responseKey: string) {
+  const survey = await getSurvey(surveyId);
   if (!survey) return null;
 
   if (survey.survey_type === "clinic") {
-    const response = getClinicNormalizedResponses(surveyId).find((item) => item.key === responseKey);
+    const response = (await getClinicNormalizedResponses(surveyId)).find((item) => item.key === responseKey);
     return response ? buildClinicDetail(response, surveyId) : null;
   }
 
   const match = /^new-(\d+)$/.exec(responseKey);
   if (!match) return null;
-  return buildJigyotaiDetail(parseInt(match[1], 10), surveyId);
+  return buildJigyotaiDetail(Number.parseInt(match[1], 10), surveyId);
 }
 
-export function getSurveyFreeTextItems(
+export async function getSurveyFreeTextItems(
   surveyId: number,
   options?: { type?: SurveyResponseType; orgUnit?: string }
-): SurveyFreeTextItem[] {
-  return getSurveyResponseSummaries(surveyId, options)
-    .map((summary) => {
-      const detail = getSurveyResponseDetail(surveyId, summary.key);
-      if (!detail?.freeText?.trim()) return null;
-      return {
-        key: summary.key,
-        respondentType: summary.respondentType,
-        respondentTypeLabel: summary.respondentTypeLabel,
-        orgUnit: summary.orgUnit,
-        orgUnitLabel: summary.orgUnitLabel,
-        name: summary.name,
-        timestamp: summary.timestamp,
-        text: detail.freeText,
-      };
-    })
-    .filter((item): item is SurveyFreeTextItem => item !== null);
+) {
+  const summaries = await getSurveyResponseSummaries(surveyId, options);
+  const results: SurveyFreeTextItem[] = [];
+
+  for (const summary of summaries) {
+    const detail = await getSurveyResponseDetail(surveyId, summary.key);
+    if (!detail?.freeText?.trim()) continue;
+
+    results.push({
+      key: summary.key,
+      respondentType: summary.respondentType,
+      respondentTypeLabel: summary.respondentTypeLabel,
+      orgUnit: summary.orgUnit,
+      orgUnitLabel: summary.orgUnitLabel,
+      name: summary.name,
+      timestamp: summary.timestamp,
+      text: detail.freeText,
+    });
+  }
+
+  return results;
 }
 
 function classifyRetention(xScore: number, yScore: number) {
   if (xScore < 3.0 && yScore < 3.0) {
-    return {
-      label: "要緊急対応（上司関係×継続意向）",
-      level: "critical" as const,
-    };
+    return { label: "要緊急対応（上司関係×継続意向）", level: "critical" as const };
   }
-
   if (xScore < 3.0 && yScore >= 3.0) {
-    return {
-      label: "上司関係に課題あり",
-      level: "warning-manager" as const,
-    };
+    return { label: "上司関係に課題あり", level: "warning-manager" as const };
   }
-
   if (xScore >= 3.0 && yScore < 3.0) {
-    return {
-      label: "上司以外の要因で離脱リスク",
-      level: "warning-other" as const,
-    };
+    return { label: "上司以外の要因で離脱リスク", level: "warning-other" as const };
   }
-
-  return {
-    label: "概ね良好",
-    level: "good" as const,
-  };
+  return { label: "概ね良好", level: "good" as const };
 }
 
-export function getRetentionDataset(surveyId: number): {
+export async function getRetentionDataset(surveyId: number): Promise<{
   surveyType: SurveyType;
   unitLabel: string;
   xQuestionNum: number;
@@ -666,8 +669,8 @@ export function getRetentionDataset(surveyId: number): {
   xLabel: string;
   yLabel: string;
   data: RetentionPoint[];
-} {
-  const survey = getSurvey(surveyId);
+}> {
+  const survey = await getSurvey(surveyId);
   if (!survey) {
     return {
       surveyType: "clinic",
@@ -681,34 +684,39 @@ export function getRetentionDataset(surveyId: number): {
   }
 
   if (survey.survey_type === "jigyotai") {
-    const db = getDb();
-    const entities = db.prepare(`
-      SELECT DISTINCT entity FROM responses
-      WHERE survey_id = ? AND type = 'staff' AND entity IS NOT NULL
-      ORDER BY entity
-    `).all(surveyId) as Array<{ entity: string }>;
+    const entities = await queryAll<{ entity: string }>(
+      `
+        SELECT DISTINCT entity
+        FROM responses
+        WHERE survey_id = ? AND type = 'staff' AND entity IS NOT NULL
+        ORDER BY entity
+      `,
+      [surveyId]
+    );
 
-    const data = entities.map(({ entity }) => {
-      const scores = db.prepare(`
-        SELECT qt.num, AVG(ra.score) as avg_score, COUNT(DISTINCT r.id) as response_count
-        FROM response_answers ra
-        JOIN responses r ON r.id = ra.response_id
-        JOIN question_templates qt ON qt.id = ra.question_id
-        WHERE r.survey_id = ? AND r.type = 'staff' AND r.entity = ?
-        GROUP BY qt.num
-      `).all(surveyId, entity) as Array<{ num: number; avg_score: number | null; response_count: number }>;
+    const data: RetentionPoint[] = [];
+    for (const { entity } of entities) {
+      const scores = await queryAll<{ num: number; avg_score: number | null; response_count: number }>(
+        `
+          SELECT qt.num, AVG(ra.score) as avg_score, COUNT(DISTINCT r.id) as response_count
+          FROM response_answers ra
+          JOIN responses r ON r.id = ra.response_id
+          JOIN question_templates qt ON qt.id = ra.question_id
+          WHERE r.survey_id = ? AND r.type = 'staff' AND r.entity = ?
+          GROUP BY qt.num
+        `,
+        [surveyId, entity]
+      );
 
       const scoreMap = new Map(scores.map((score) => [score.num, score.avg_score]));
-      const xScore = Math.round(((scoreMap.get(7) ?? 0) as number) * 100) / 100;
-      const yScore = Math.round(((scoreMap.get(19) ?? 0) as number) * 100) / 100;
+      const xScore = round2((scoreMap.get(7) ?? 0) as number);
+      const yScore = round2((scoreMap.get(19) ?? 0) as number);
       const valid = scores.map((score) => score.avg_score).filter((score): score is number => score != null);
-      const overallAvg = valid.length > 0
-        ? Math.round((valid.reduce((sum, score) => sum + score, 0) / valid.length) * 100) / 100
-        : 0;
+      const overallAvg = valid.length > 0 ? round2(valid.reduce((sum, score) => sum + score, 0) / valid.length) : 0;
       const count = scores[0]?.response_count ?? 0;
       const classification = classifyRetention(xScore, yScore);
 
-      return {
+      data.push({
         unit: entity,
         xScore,
         yScore,
@@ -716,8 +724,8 @@ export function getRetentionDataset(surveyId: number): {
         count,
         label: classification.label,
         level: classification.level,
-      };
-    });
+      });
+    }
 
     return {
       surveyType: "jigyotai",
@@ -730,17 +738,12 @@ export function getRetentionDataset(surveyId: number): {
     };
   }
 
-  const clinicAverages = getClinicStaffAveragesByClinic(surveyId) as Array<Record<string, number | null> & {
-    clinic: string;
-    count: number;
-  }>;
+  const clinicAverages = await getClinicStaffAveragesByClinic(surveyId);
   const data = clinicAverages.map((clinicAverage) => {
-    const xScore = clinicAverage.q7 != null ? Math.round(clinicAverage.q7 * 100) / 100 : 0;
-    const yScore = clinicAverage.q15 != null ? Math.round(clinicAverage.q15 * 100) / 100 : 0;
+    const xScore = clinicAverage.q7 != null ? round2(clinicAverage.q7) : 0;
+    const yScore = clinicAverage.q15 != null ? round2(clinicAverage.q15) : 0;
     const valid = QUESTIONS.map((question) => clinicAverage[question.id]).filter((score): score is number => score != null);
-    const overallAvg = valid.length > 0
-      ? Math.round((valid.reduce((sum, score) => sum + score, 0) / valid.length) * 100) / 100
-      : 0;
+    const overallAvg = valid.length > 0 ? round2(valid.reduce((sum, score) => sum + score, 0) / valid.length) : 0;
     const classification = classifyRetention(xScore, yScore);
 
     return {

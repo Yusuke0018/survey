@@ -12,10 +12,7 @@ export async function GET(
 
   const { id } = await params;
   const surveyId = parseInt(id);
-  const clinicAverages = getClinicStaffAveragesByClinic(surveyId) as Array<Record<string, number | null> & {
-    clinic: string;
-    count: number;
-  }>;
+  const clinicAverages = await getClinicStaffAveragesByClinic(surveyId);
 
   const clinics = clinicAverages.map((ca) => ca.clinic);
 

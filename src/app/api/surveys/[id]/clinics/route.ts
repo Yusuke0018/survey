@@ -13,11 +13,8 @@ export async function GET(
   const { id } = await params;
   const surveyId = parseInt(id);
 
-  const clinicAverages = getClinicStaffAveragesByClinic(surveyId) as Array<Record<string, number | null> & {
-    clinic: string;
-    count: number;
-  }>;
-  const directorClinics = new Set(getClinicLatestDirectorByClinic(surveyId).keys());
+  const clinicAverages = await getClinicStaffAveragesByClinic(surveyId);
+  const directorClinics = new Set((await getClinicLatestDirectorByClinic(surveyId)).keys());
 
   const clinics = clinicAverages.map((ca) => {
     const scores: Record<string, number | null> = {};
