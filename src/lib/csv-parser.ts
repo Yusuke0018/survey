@@ -229,6 +229,9 @@ export function parseDirectorCSV(csvText: string, surveyId: number): ParseResult
 
 function matchQuestionColumnDynamic(header: string, questions: QuestionDef[]): number | null {
   const trimmed = header.trim();
+  // Also try stripping "Q1. " or "Q12. " prefix from header for matching
+  const stripped = trimmed.replace(/^Q\d+\.\s*/, "");
+
   for (const q of questions) {
     const candidates = [
       q.staffText?.substring(0, 20),
@@ -236,7 +239,7 @@ function matchQuestionColumnDynamic(header: string, questions: QuestionDef[]): n
       q.text?.substring(0, 20),
     ].filter(Boolean) as string[];
     for (const prefix of candidates) {
-      if (prefix && trimmed.includes(prefix)) {
+      if (prefix && (trimmed.includes(prefix) || stripped.includes(prefix))) {
         return q.templateId;
       }
     }
@@ -284,7 +287,7 @@ function parseDynamicCSVInternal(
       continue;
     }
 
-    if (h === "事業体" || h === "事業体名" || h === "所属事業体") {
+    if (h.includes("事業体")) {
       entityCol = i;
       continue;
     }
