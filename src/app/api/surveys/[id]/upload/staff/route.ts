@@ -23,7 +23,18 @@ export async function POST(
     return NextResponse.json({ error: "CSVファイルが必要です" }, { status: 400 });
   }
 
-  const text = await file.text();
+  // Try reading as UTF-8 first, fall back to Shift_JIS
+  let text: string;
+  const buffer = await file.arrayBuffer();
+  const utf8Text = new TextDecoder("utf-8").decode(buffer);
+
+  // Check if UTF-8 decode produced replacement characters (indicates wrong encoding)
+  if (utf8Text.includes("\uFFFD")) {
+    text = new TextDecoder("shift_jis").decode(buffer);
+  } else {
+    text = utf8Text;
+  }
+
   const result = parseStaffCSV(text, surveyId);
 
   if (result.errors.length > 0 && result.rows.length === 0) {

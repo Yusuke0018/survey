@@ -23,6 +23,7 @@ function matchQuestionColumn(header: string): number | null {
 
 function extractScore(value: string): number | null {
   if (!value || value.trim() === "") return null;
+  // Handle "4：ややそう思う" format - extract leading digit
   const match = value.trim().match(/^(\d)/);
   if (match) return parseInt(match[1], 10);
   const num = parseInt(value.trim(), 10);
@@ -55,8 +56,48 @@ function parseCSVLine(line: string): string[] {
   return result;
 }
 
+// Handle multi-line CSV (quoted fields with newlines)
+function splitCSVLines(text: string): string[] {
+  const lines: string[] = [];
+  let current = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    if (char === '"') {
+      inQuotes = !inQuotes;
+      current += char;
+    } else if ((char === '\n' || char === '\r') && !inQuotes) {
+      if (char === '\r' && i + 1 < text.length && text[i + 1] === '\n') {
+        i++; // skip \n after \r
+      }
+      if (current.trim()) {
+        lines.push(current);
+      }
+      current = "";
+    } else {
+      current += char;
+    }
+  }
+  if (current.trim()) {
+    lines.push(current);
+  }
+  return lines;
+}
+
+function cleanCSVText(text: string): string {
+  // Remove BOM (UTF-8, UTF-16 LE/BE)
+  if (text.charCodeAt(0) === 0xFEFF) {
+    text = text.substring(1);
+  }
+  // Remove zero-width characters
+  text = text.replace(/[\u200B-\u200D\uFEFF]/g, "");
+  return text;
+}
+
 export function parseStaffCSV(csvText: string, surveyId: number): ParseResult {
-  const lines = csvText.split(/\r?\n/).filter((l) => l.trim());
+  csvText = cleanCSVText(csvText);
+  const lines = splitCSVLines(csvText);
   if (lines.length < 2) {
     return { rows: [], matchedQuestions: 0, totalRows: 0, errors: ["CSVが空またはヘッダーのみです"] };
   }
@@ -88,7 +129,7 @@ export function parseStaffCSV(csvText: string, surveyId: number): ParseResult {
       continue;
     }
 
-    if (h.includes("自由") || h.includes("コメント") || h.includes("ご意見") || h.includes("その他")) {
+    if (h.includes("自由") || h.includes("コメント") || h.includes("ご意見") || h.includes("その他") || h.includes("ご自身の") || h.includes("職場環境")) {
       freeTextCol = i;
       continue;
     }
@@ -107,7 +148,9 @@ export function parseStaffCSV(csvText: string, surveyId: number): ParseResult {
   }
 
   if (clinicCol === -1) {
-    errors.push("所属拠点のカラムが見つかりません");
+    // Debug: output first few headers for troubleshooting
+    const headerSample = headers.slice(0, 5).map((h, i) => `[${i}]"${h.trim().substring(0, 20)}"`).join(", ");
+    errors.push(`所属拠点のカラムが見つかりません（ヘッダー先頭: ${headerSample}）`);
     return { rows: [], matchedQuestions, totalRows: 0, errors };
   }
 
