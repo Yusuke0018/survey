@@ -15,11 +15,13 @@ export interface QuestionDef {
   num: number;
   staffText: string;
   directorText: string;
+  text?: string;
 }
 
 export interface ParsedCSVResponse {
   timestamp: string | null;
   clinic: string;
+  entity: string | null;
   respondentName: string | null;
   freeText: string | null;
   answers: Array<{ questionId: number; score: number | null }>;
@@ -228,13 +230,15 @@ export function parseDirectorCSV(csvText: string, surveyId: number): ParseResult
 function matchQuestionColumnDynamic(header: string, questions: QuestionDef[]): number | null {
   const trimmed = header.trim();
   for (const q of questions) {
-    const staffPrefix = q.staffText.substring(0, 20);
-    const directorPrefix = q.directorText.substring(0, 20);
-    if (
-      (staffPrefix && trimmed.includes(staffPrefix)) ||
-      (directorPrefix && trimmed.includes(directorPrefix))
-    ) {
-      return q.templateId;
+    const candidates = [
+      q.staffText?.substring(0, 20),
+      q.directorText?.substring(0, 20),
+      q.text?.substring(0, 20),
+    ].filter(Boolean) as string[];
+    for (const prefix of candidates) {
+      if (prefix && trimmed.includes(prefix)) {
+        return q.templateId;
+      }
     }
   }
   return null;
@@ -263,6 +267,7 @@ function parseDynamicCSVInternal(
   const columnMap: Record<number, number> = {}; // colIndex -> templateId
   let timestampCol = -1;
   let clinicCol = -1;
+  let entityCol = -1;
   let nameCol = -1;
   let freeTextCol = -1;
 
@@ -276,6 +281,11 @@ function parseDynamicCSVInternal(
 
     if (h === "所属" || h === "所属拠点" || h === "拠点" || h === "クリニック" || h === "クリニック名") {
       clinicCol = i;
+      continue;
+    }
+
+    if (h === "事業体" || h === "事業体名" || h === "所属事業体") {
+      entityCol = i;
       continue;
     }
 
@@ -302,9 +312,11 @@ function parseDynamicCSVInternal(
     errors.push(`${questions.length}問中${matchedQuestions}問のみマッチしました。CSVのヘッダーを確認してください。`);
   }
 
-  if (clinicCol === -1) {
+  // Use entity column as fallback for clinic column
+  const orgCol = clinicCol >= 0 ? clinicCol : entityCol;
+  if (orgCol === -1) {
     const headerSample = headers.slice(0, 5).map((h, i) => `[${i}]"${h.trim().substring(0, 20)}"`).join(", ");
-    errors.push(`所属拠点のカラムが見つかりません（ヘッダー先頭: ${headerSample}）`);
+    errors.push(`所属拠点/事業体のカラムが見つかりません（ヘッダー先頭: ${headerSample}）`);
     return { responses: [], matchedQuestions, totalQuestions: questions.length, totalRows: 0, errors };
   }
 
@@ -314,8 +326,8 @@ function parseDynamicCSVInternal(
     const cols = parseCSVLine(lines[i]);
     if (cols.length < 2) continue;
 
-    const clinic = cols[clinicCol]?.trim();
-    if (!clinic) continue;
+    const orgValue = cols[orgCol]?.trim();
+    if (!orgValue) continue;
 
     const answers: Array<{ questionId: number; score: number | null }> = [];
     for (const [colIdx, templateId] of Object.entries(columnMap)) {
@@ -326,7 +338,8 @@ function parseDynamicCSVInternal(
 
     responses.push({
       timestamp: timestampCol >= 0 ? cols[timestampCol]?.trim() || null : null,
-      clinic,
+      clinic: clinicCol >= 0 ? orgValue : "",
+      entity: entityCol >= 0 ? (clinicCol >= 0 ? cols[entityCol]?.trim() || null : orgValue) : null,
       respondentName: includeRespondentName && nameCol >= 0 ? cols[nameCol]?.trim() || null : null,
       freeText: freeTextCol >= 0 ? cols[freeTextCol]?.trim() || null : null,
       answers,

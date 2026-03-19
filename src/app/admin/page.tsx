@@ -37,7 +37,7 @@ export default function AdminPage() {
 
   // Upload states
   const [uploadingSurveyId, setUploadingSurveyId] = useState<number | null>(null);
-  const [uploadType, setUploadType] = useState<"staff" | "director">("staff");
+  const [uploadType, setUploadType] = useState<string>("staff");
   const [uploadResult, setUploadResult] = useState<string | null>(null);
 
   const loadSurveys = () => {
@@ -100,16 +100,18 @@ export default function AdminPage() {
 
     const formData = new FormData();
     formData.append("csv", fileInput.files[0]);
+    formData.append("type", uploadType);
 
     setUploadResult(null);
-    const res = await fetch(`/api/surveys/${uploadingSurveyId}/upload/${uploadType}`, {
+    const res = await fetch(`/api/surveys/${uploadingSurveyId}/upload`, {
       method: "POST",
       body: formData,
     });
 
     const data = await res.json();
     if (res.ok) {
-      setUploadResult(`${data.count}件の回答をインポートしました（${data.matchedQuestions}/15問マッチ）${data.warnings?.length ? "\n" + data.warnings.join("; ") : ""}`);
+      const matched = data.totalQuestions ? `${data.matchedQuestions}/${data.totalQuestions}問マッチ` : `${data.matchedQuestions}問マッチ`;
+      setUploadResult(`${data.count}件の回答をインポートしました（${matched}）${data.warnings?.length ? "\n" + data.warnings.join("; ") : ""}`);
       setSelectedSurveyId(uploadingSurveyId);
       loadSurveys();
       fileInput.value = "";
@@ -268,7 +270,9 @@ export default function AdminPage() {
       </div>
 
       {/* Upload Modal */}
-      {uploadingSurveyId && (
+      {uploadingSurveyId && (() => {
+        const uploadingSurvey = surveys.find((s) => s.id === uploadingSurveyId);
+        return (
         <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
           <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md animate-scale-in">
             <div className="flex items-center justify-between mb-4">
@@ -285,22 +289,27 @@ export default function AdminPage() {
             </p>
 
             <div className="flex gap-2 mb-4">
-              <button
-                onClick={() => setUploadType("staff")}
-                className={`flex-1 py-2 rounded-lg text-xs font-medium transition-colors ${
-                  uploadType === "staff" ? "bg-[#10B981] text-white" : "bg-[#F3F4F6] text-[#6B7280]"
-                }`}
-              >
-                スタッフ回答
-              </button>
-              <button
-                onClick={() => setUploadType("director")}
-                className={`flex-1 py-2 rounded-lg text-xs font-medium transition-colors ${
-                  uploadType === "director" ? "bg-[#8B5CF6] text-white" : "bg-[#F3F4F6] text-[#6B7280]"
-                }`}
-              >
-                院長回答
-              </button>
+              {(uploadingSurvey?.survey_type === "jigyotai"
+                ? [
+                    { type: "staff", label: "スタッフ回答", activeColor: "bg-[#10B981]" },
+                    { type: "manager", label: "責任者回答", activeColor: "bg-[#8B5CF6]" },
+                    { type: "corporate", label: "経営企画室回答", activeColor: "bg-[#F59E0B]" },
+                  ]
+                : [
+                    { type: "staff", label: "スタッフ回答", activeColor: "bg-[#10B981]" },
+                    { type: "director", label: "院長回答", activeColor: "bg-[#8B5CF6]" },
+                  ]
+              ).map((entry) => (
+                <button
+                  key={entry.type}
+                  onClick={() => setUploadType(entry.type)}
+                  className={`flex-1 py-2 rounded-lg text-xs font-medium transition-colors ${
+                    uploadType === entry.type ? `${entry.activeColor} text-white` : "bg-[#F3F4F6] text-[#6B7280]"
+                  }`}
+                >
+                  {entry.label}
+                </button>
+              ))}
             </div>
 
             <form onSubmit={handleUpload}>
@@ -328,7 +337,8 @@ export default function AdminPage() {
             )}
           </div>
         </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
