@@ -1,10 +1,22 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
-import { getSurvey, getQuestionTemplates, execute, upsertJigyotaiQuestions, withTransaction } from "@/lib/db";
+import { getSurvey, getQuestionTemplates, upsertJigyotaiQuestions, withTransaction } from "@/lib/db";
 import { parseStaffCSVDynamic } from "@/lib/csv-parser";
 import type { QuestionDef } from "@/lib/csv-parser";
 import { getStorageWriteGuardResponse } from "@/lib/storage-mode";
 import { getJigyotaiQuestions } from "@/lib/jigyotai-questions";
+
+function buildAnswerInsert(
+  responseId: number,
+  answers: Array<{ questionId: number; score: number | null }>
+) {
+  return {
+    sql: `INSERT INTO response_answers (response_id, question_id, score, skip_reason) VALUES ${answers
+      .map(() => "(?, ?, ?, NULL)")
+      .join(", ")}`,
+    args: answers.flatMap((answer) => [responseId, answer.questionId, answer.score]),
+  };
+}
 
 export async function POST(
   request: NextRequest,
@@ -38,10 +50,9 @@ export async function POST(
       return NextResponse.json({ error: `無効な回答者タイプ: ${respondentType}` }, { status: 400 });
     }
 
-    let text: string;
     const buffer = await file.arrayBuffer();
     const utf8Text = new TextDecoder("utf-8").decode(buffer);
-    text = utf8Text.includes("\uFFFD")
+    const text = utf8Text.includes("\uFFFD")
       ? new TextDecoder("shift_jis").decode(buffer)
       : utf8Text;
 
@@ -129,11 +140,9 @@ export async function POST(
           ],
         });
         const responseId = Number(insertRes.lastInsertRowid);
-        for (const answer of resp.answers) {
-          await tx.execute({
-            sql: "INSERT INTO response_answers (response_id, question_id, score, skip_reason) VALUES (?, ?, ?, NULL)",
-            args: [responseId, answer.questionId, answer.score],
-          });
+
+        if (resp.answers.length > 0) {
+          await tx.execute(buildAnswerInsert(responseId, resp.answers));
         }
         inserted++;
       }

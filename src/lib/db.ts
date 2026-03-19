@@ -472,15 +472,44 @@ export async function getAllSurveys() {
     new_corporate_count: number;
     question_count: number;
   }>(`
+    WITH legacy_staff_counts AS (
+      SELECT survey_id, COUNT(*) AS count
+      FROM staff_responses
+      GROUP BY survey_id
+    ),
+    legacy_director_counts AS (
+      SELECT survey_id, COUNT(*) AS count
+      FROM director_responses
+      GROUP BY survey_id
+    ),
+    response_counts AS (
+      SELECT
+        survey_id,
+        SUM(CASE WHEN type = 'staff' THEN 1 ELSE 0 END) AS new_staff_count,
+        SUM(CASE WHEN type = 'director' THEN 1 ELSE 0 END) AS new_director_count,
+        SUM(CASE WHEN type = 'manager' THEN 1 ELSE 0 END) AS new_manager_count,
+        SUM(CASE WHEN type = 'corporate' THEN 1 ELSE 0 END) AS new_corporate_count
+      FROM responses
+      GROUP BY survey_id
+    ),
+    question_counts AS (
+      SELECT survey_id, COUNT(*) AS question_count
+      FROM question_templates
+      GROUP BY survey_id
+    )
     SELECT s.*,
-      (SELECT COUNT(*) FROM staff_responses WHERE survey_id = s.id) as legacy_staff_count,
-      (SELECT COUNT(*) FROM director_responses WHERE survey_id = s.id) as legacy_director_count,
-      (SELECT COUNT(*) FROM responses WHERE survey_id = s.id AND type = 'staff') as new_staff_count,
-      (SELECT COUNT(*) FROM responses WHERE survey_id = s.id AND type = 'director') as new_director_count,
-      (SELECT COUNT(*) FROM responses WHERE survey_id = s.id AND type = 'manager') as new_manager_count,
-      (SELECT COUNT(*) FROM responses WHERE survey_id = s.id AND type = 'corporate') as new_corporate_count,
-      (SELECT COUNT(*) FROM question_templates WHERE survey_id = s.id) as question_count
+      COALESCE(lsc.count, 0) AS legacy_staff_count,
+      COALESCE(ldc.count, 0) AS legacy_director_count,
+      COALESCE(rc.new_staff_count, 0) AS new_staff_count,
+      COALESCE(rc.new_director_count, 0) AS new_director_count,
+      COALESCE(rc.new_manager_count, 0) AS new_manager_count,
+      COALESCE(rc.new_corporate_count, 0) AS new_corporate_count,
+      COALESCE(qc.question_count, 0) AS question_count
     FROM surveys s
+    LEFT JOIN legacy_staff_counts lsc ON lsc.survey_id = s.id
+    LEFT JOIN legacy_director_counts ldc ON ldc.survey_id = s.id
+    LEFT JOIN response_counts rc ON rc.survey_id = s.id
+    LEFT JOIN question_counts qc ON qc.survey_id = s.id
     ORDER BY s.conducted_at DESC
   `);
 }

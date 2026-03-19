@@ -35,6 +35,54 @@ export interface DynamicParseResult {
   errors: string[];
 }
 
+function normalizeHeaderLabel(header: string): string {
+  return header.normalize("NFKC").replace(/\s+/g, " ").trim();
+}
+
+function normalizeQuestionTextForMatch(value: string): string {
+  return value
+    .normalize("NFKC")
+    .replace(/^[QＱ]\s*[0-9０-９]{1,2}\s*[\.\):：-]?\s*/u, "")
+    .replace(/[\u200B-\u200D\uFEFF]/g, "")
+    .replace(/[「」"'”“‘’]/g, "")
+    .replace(/[()（）【】［］\[\]<>＜＞]/g, " ")
+    .replace(/[・,，、。．]/g, "")
+    .replace(/\s+/g, "")
+    .trim();
+}
+
+function extractHeaderQuestionNumber(header: string): number | null {
+  const normalized = header.normalize("NFKC").trim();
+  const match = normalized.match(/^[QＱ]\s*([0-9]{1,2})\s*[\.\):：-]?/u);
+  if (!match) return null;
+  const questionNum = parseInt(match[1], 10);
+  return Number.isNaN(questionNum) ? null : questionNum;
+}
+
+function isClinicColumn(header: string): boolean {
+  const normalized = normalizeHeaderLabel(header);
+  return (
+    normalized === "所属" ||
+    normalized === "所属拠点" ||
+    normalized === "拠点" ||
+    normalized === "クリニック" ||
+    normalized === "クリニック名" ||
+    /所属.*(拠点|クリニック)/.test(normalized)
+  );
+}
+
+function isEntityColumn(header: string): boolean {
+  const normalized = normalizeHeaderLabel(header);
+  return (
+    normalized.includes("事業体") ||
+    normalized.includes("事業所") ||
+    normalized === "事業" ||
+    normalized === "事業名" ||
+    normalized === "法人" ||
+    /所属.*(事業体|事業|法人|部門)/.test(normalized)
+  );
+}
+
 function matchQuestionColumn(header: string): number | null {
   const trimmed = header.trim();
   for (const q of QUESTIONS) {
@@ -146,7 +194,7 @@ export function parseStaffCSV(csvText: string, surveyId: number): ParseResult {
       continue;
     }
 
-    if (h === "所属" || h === "所属拠点" || h === "拠点" || h === "クリニック" || h === "クリニック名") {
+    if (isClinicColumn(h)) {
       clinicCol = i;
       continue;
     }
@@ -228,20 +276,29 @@ export function parseDirectorCSV(csvText: string, surveyId: number): ParseResult
 // --- Dynamic question functions ---
 
 function matchQuestionColumnDynamic(header: string, questions: QuestionDef[]): number | null {
-  const trimmed = header.trim();
-  // Strip "Q1. " or "Q12. " prefix from header for matching
-  const stripped = trimmed.replace(/^Q\d+\.\s*/, "");
+  const questionNum = extractHeaderQuestionNumber(header);
+  if (questionNum !== null) {
+    const matchedByNumber = questions.find((q) => q.num === questionNum);
+    if (matchedByNumber) {
+      return matchedByNumber.templateId;
+    }
+  }
+
+  const normalizedHeader = normalizeQuestionTextForMatch(header);
+  if (!normalizedHeader) return null;
 
   for (const q of questions) {
     const candidates = [q.staffText, q.directorText, q.text].filter(Boolean) as string[];
     for (const fullText of candidates) {
-      const prefix = fullText.substring(0, 15);
+      const normalizedCandidate = normalizeQuestionTextForMatch(fullText);
+      const prefix = normalizedCandidate.substring(0, 18);
       if (!prefix) continue;
-      // Check both directions: header contains prefix, OR prefix/text contains stripped header
+
       if (
-        trimmed.includes(prefix) ||
-        stripped.includes(prefix) ||
-        (stripped.length >= 8 && fullText.includes(stripped))
+        normalizedHeader === normalizedCandidate ||
+        normalizedHeader.includes(normalizedCandidate) ||
+        normalizedCandidate.includes(normalizedHeader) ||
+        (prefix.length >= 8 && normalizedHeader.includes(prefix))
       ) {
         return q.templateId;
       }
@@ -271,6 +328,7 @@ function parseDynamicCSVInternal(
 
   // Map columns to template IDs
   const columnMap: Record<number, number> = {}; // colIndex -> templateId
+  const matchedTemplateIds = new Set<number>();
   let timestampCol = -1;
   let clinicCol = -1;
   let entityCol = -1;
@@ -285,12 +343,12 @@ function parseDynamicCSVInternal(
       continue;
     }
 
-    if (h === "所属" || h === "所属拠点" || h === "拠点" || h === "クリニック" || h === "クリニック名") {
+    if (isClinicColumn(h)) {
       clinicCol = i;
       continue;
     }
 
-    if (h.includes("事業体")) {
+    if (isEntityColumn(h)) {
       entityCol = i;
       continue;
     }
@@ -306,12 +364,13 @@ function parseDynamicCSVInternal(
     }
 
     const templateId = matchQuestionColumnDynamic(h, questions);
-    if (templateId !== null) {
+    if (templateId !== null && !matchedTemplateIds.has(templateId)) {
       columnMap[i] = templateId;
+      matchedTemplateIds.add(templateId);
     }
   }
 
-  const matchedQuestions = Object.keys(columnMap).length;
+  const matchedQuestions = matchedTemplateIds.size;
   const errors: string[] = [];
 
   if (matchedQuestions < questions.length) {
