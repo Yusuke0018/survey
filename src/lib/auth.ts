@@ -8,7 +8,7 @@ const SESSION_COOKIE = "survey_session";
 const SESSION_MAX_AGE = 7 * 24 * 60 * 60; // 7 days
 
 function getAdminPassword(): string {
-  return process.env.ADMIN_PASSWORD || process.env.APP_PASSWORD || "admin";
+  return process.env.ADMIN_PASSWORD || "liberalarts";
 }
 
 function getStaffPassword(): string {
