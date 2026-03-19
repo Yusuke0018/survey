@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
 interface Survey {
@@ -14,6 +14,7 @@ export function SurveySelector() {
   const [selected, setSelected] = useState<number | null>(null);
   const router = useRouter();
   const searchParams = useSearchParams();
+  const initialized = useRef(false);
 
   useEffect(() => {
     fetch("/api/surveys")
@@ -23,11 +24,17 @@ export function SurveySelector() {
         const paramId = searchParams.get("surveyId");
         if (paramId) {
           setSelected(parseInt(paramId));
-        } else if (data.length > 0) {
-          setSelected(data[0].id);
+        } else if (data.length > 0 && !initialized.current) {
+          // Auto-select first survey and update URL
+          initialized.current = true;
+          const firstId = data[0].id;
+          setSelected(firstId);
+          const params = new URLSearchParams(searchParams.toString());
+          params.set("surveyId", String(firstId));
+          router.replace(`?${params.toString()}`);
         }
       });
-  }, [searchParams]);
+  }, [searchParams, router]);
 
   const handleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const id = parseInt(e.target.value);

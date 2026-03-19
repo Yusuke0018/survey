@@ -119,7 +119,7 @@ export function parseStaffCSV(csvText: string, surveyId: number): ParseResult {
       continue;
     }
 
-    if (h.includes("所属") || h.includes("クリニック") || h.includes("拠点")) {
+    if (h === "所属" || h === "所属拠点" || h === "拠点" || h === "クリニック" || h === "クリニック名") {
       clinicCol = i;
       continue;
     }
