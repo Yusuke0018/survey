@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useSearchParams, useParams } from "next/navigation";
+import { useParams } from "next/navigation";
 import Link from "next/link";
+import { useSurveyContext } from "@/components/survey-context";
 import { ScoreBadge } from "@/components/score-badge";
 import { ScoreBar } from "@/components/score-bar";
 import { AreaBadge } from "@/components/area-badge";
@@ -40,9 +41,8 @@ interface ClinicDetail {
 }
 
 export default function ClinicDetailPage() {
-  const searchParams = useSearchParams();
   const params = useParams();
-  const surveyId = searchParams.get("surveyId");
+  const { id: surveyId } = useSurveyContext();
   const clinicName = decodeURIComponent(params.clinicName as string);
   const [data, setData] = useState<ClinicDetail | null>(null);
 

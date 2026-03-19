@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useState } from "react";
+import { useSurveyContext } from "@/components/survey-context";
 
 interface Survey {
   id: number;
@@ -11,37 +11,17 @@ interface Survey {
 
 export function SurveySelector() {
   const [surveys, setSurveys] = useState<Survey[]>([]);
-  const [selected, setSelected] = useState<number | null>(null);
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const initialized = useRef(false);
+  const { id: selected, ready, setSelectedSurveyId } = useSurveyContext();
 
   useEffect(() => {
     fetch("/api/surveys")
       .then((r) => r.json())
-      .then((data) => {
-        setSurveys(data);
-        const paramId = searchParams.get("surveyId");
-        if (paramId) {
-          setSelected(parseInt(paramId));
-        } else if (data.length > 0 && !initialized.current) {
-          // Auto-select first survey and update URL
-          initialized.current = true;
-          const firstId = data[0].id;
-          setSelected(firstId);
-          const params = new URLSearchParams(searchParams.toString());
-          params.set("surveyId", String(firstId));
-          router.replace(`?${params.toString()}`);
-        }
-      });
-  }, [searchParams, router]);
+      .then(setSurveys);
+  }, []);
 
   const handleChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const id = parseInt(e.target.value);
-    setSelected(id);
-    const params = new URLSearchParams(searchParams.toString());
-    params.set("surveyId", String(id));
-    router.push(`?${params.toString()}`);
+    setSelectedSurveyId(id);
   };
 
   if (surveys.length === 0) {
@@ -56,6 +36,7 @@ export function SurveySelector() {
     <select
       value={selected || ""}
       onChange={handleChange}
+      disabled={!ready}
       className="border border-[#D1D5DB] rounded-xl px-4 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#10B981]/30 focus:border-[#10B981]"
     >
       {surveys.map((s) => (
@@ -68,17 +49,5 @@ export function SurveySelector() {
 }
 
 export function useSurveyId(): number | null {
-  const searchParams = useSearchParams();
-  const [surveys, setSurveys] = useState<Survey[]>([]);
-
-  useEffect(() => {
-    fetch("/api/surveys")
-      .then((r) => r.json())
-      .then(setSurveys);
-  }, []);
-
-  const paramId = searchParams.get("surveyId");
-  if (paramId) return parseInt(paramId);
-  if (surveys.length > 0) return surveys[0].id;
-  return null;
+  return useSurveyContext().id;
 }

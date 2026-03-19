@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSurveyContext } from "@/components/survey-context";
 import { getEntityShortName } from "@/lib/entities";
 import { SKIP_OPTIONS } from "@/lib/jigyotai-questions";
 
@@ -27,8 +27,7 @@ interface SkipData {
 }
 
 export default function SkipAnalysisPage() {
-  const searchParams = useSearchParams();
-  const surveyId = searchParams.get("surveyId");
+  const { id: surveyId } = useSurveyContext();
   const [data, setData] = useState<SkipData | null>(null);
   const [filterType, setFilterType] = useState<string>("all");
 

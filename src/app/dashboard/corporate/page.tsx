@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSurveyContext } from "@/components/survey-context";
 import { ScoreBadge } from "@/components/score-badge";
 import { ScoreBar } from "@/components/score-bar";
 import { getEntityShortName, getEntityGroupColor } from "@/lib/entities";
@@ -33,8 +33,7 @@ interface CorporateData {
 }
 
 export default function CorporatePage() {
-  const searchParams = useSearchParams();
-  const surveyId = searchParams.get("surveyId");
+  const { id: surveyId } = useSurveyContext();
   const [data, setData] = useState<CorporateData | null>(null);
   const [selectedEntity, setSelectedEntity] = useState<string | null>(null);
 

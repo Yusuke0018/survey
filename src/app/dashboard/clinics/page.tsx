@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
 import Link from "next/link";
+import { useSurveyContext } from "@/components/survey-context";
 import { ScoreBadge, getScoreBorderColor } from "@/components/score-badge";
 import { getClinicShortName, CLINIC_GROUPS, groupClinicsByEntity, type ClinicGroup } from "@/lib/clinics";
 import {
@@ -32,8 +32,7 @@ interface HeatmapData {
 type ViewMode = "all" | "group" | string; // string = specific group id
 
 export default function ClinicsPage() {
-  const searchParams = useSearchParams();
-  const surveyId = searchParams.get("surveyId");
+  const { id: surveyId } = useSurveyContext();
   const [clinics, setClinics] = useState<ClinicData[]>([]);
   const [heatmap, setHeatmap] = useState<HeatmapData | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>("group");

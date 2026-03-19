@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
 import { ScoreBadge } from "@/components/score-badge";
 import { AreaBadge } from "@/components/area-badge";
+import { useSurveyContext } from "@/components/survey-context";
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from "recharts";
@@ -23,8 +23,7 @@ interface GapData {
 }
 
 export default function GapPage() {
-  const searchParams = useSearchParams();
-  const surveyId = searchParams.get("surveyId");
+  const { id: surveyId } = useSurveyContext();
   const [gaps, setGaps] = useState<GapData[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
 

@@ -1,17 +1,27 @@
 "use client";
 
+import { Suspense } from "react";
 import { Sidebar } from "@/components/sidebar";
+import { SurveyProvider } from "@/components/survey-context";
+import { SurveySelector } from "@/components/survey-selector";
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   return (
-    <div className="min-h-screen bg-[#F8FAFB]">
-      <Sidebar />
-      <div className="ml-[260px]">
-        <header className="sticky top-0 z-30 bg-white/90 backdrop-blur-sm border-b border-[#E5E7EB] px-8 py-3.5">
-          <h1 className="text-sm font-medium text-[#6B7280]">管理</h1>
-        </header>
-        <main className="p-8 animate-fade-in">{children}</main>
-      </div>
-    </div>
+    <Suspense fallback={<div className="min-h-screen bg-[#F8FAFB] flex items-center justify-center text-[#9CA3AF]">読み込み中...</div>}>
+      <SurveyProvider>
+        <div className="min-h-screen bg-[#F8FAFB]">
+          <Sidebar />
+          <div className="ml-[260px]">
+            <header className="sticky top-0 z-30 bg-white/90 backdrop-blur-sm border-b border-[#E5E7EB] px-8 py-3.5 flex items-center justify-between gap-4">
+              <h1 className="text-sm font-medium text-[#6B7280]">管理</h1>
+              <Suspense fallback={<div className="text-sm text-[#9CA3AF]">読み込み中...</div>}>
+                <SurveySelector />
+              </Suspense>
+            </header>
+            <main className="p-8 animate-fade-in">{children}</main>
+          </div>
+        </div>
+      </SurveyProvider>
+    </Suspense>
   );
 }

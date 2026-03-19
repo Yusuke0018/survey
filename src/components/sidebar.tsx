@@ -153,9 +153,14 @@ const adminItems = [
 export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
-  const { type: surveyType } = useSurveyContext();
+  const { id: surveyId, type: surveyType } = useSurveyContext();
 
   const navItems = surveyType === "jigyotai" ? jigyotaiNavItems : clinicNavItems;
+
+  const withSurveyId = (href: string) => {
+    if (!surveyId) return href;
+    return `${href}?surveyId=${surveyId}`;
+  };
 
   const handleLogout = async () => {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -193,7 +198,7 @@ export function Sidebar() {
           return (
             <Link
               key={item.href}
-              href={item.href}
+              href={withSurveyId(item.href)}
               className={cn(
                 "flex items-center gap-3 px-5 py-2.5 mx-2 rounded-lg text-sm transition-all duration-150",
                 isActive
@@ -215,7 +220,7 @@ export function Sidebar() {
           return (
             <Link
               key={item.href}
-              href={item.href}
+              href={withSurveyId(item.href)}
               className={cn(
                 "flex items-center gap-3 px-5 py-2.5 mx-2 rounded-lg text-sm transition-all duration-150",
                 isActive

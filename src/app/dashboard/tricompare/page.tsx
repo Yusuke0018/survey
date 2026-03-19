@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSurveyContext } from "@/components/survey-context";
 import { ScoreBadge } from "@/components/score-badge";
 import { getEntityShortName, getEntityGroupColor } from "@/lib/entities";
 import {
@@ -27,8 +27,7 @@ interface EntityTricompare {
 }
 
 export default function TricomparePage() {
-  const searchParams = useSearchParams();
-  const surveyId = searchParams.get("surveyId");
+  const { id: surveyId } = useSurveyContext();
   const [data, setData] = useState<EntityTricompare[]>([]);
   const [selectedEntity, setSelectedEntity] = useState<string | null>(null);
 

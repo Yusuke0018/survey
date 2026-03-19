@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSurveyContext } from "@/components/survey-context";
 import { ScoreBadge } from "@/components/score-badge";
 import { ENTITY_GROUPS, getEntityShortName, getEntityGroupColor, groupEntitiesByGroup } from "@/lib/entities";
 import {
@@ -29,8 +29,7 @@ interface JgScoreData {
 type ViewMode = "all" | "group" | string;
 
 export default function EntitiesPage() {
-  const searchParams = useSearchParams();
-  const surveyId = searchParams.get("surveyId");
+  const { id: surveyId } = useSurveyContext();
   const [entities, setEntities] = useState<EntityData[]>([]);
   const [heatmapData, setHeatmapData] = useState<JgScoreData | null>(null);
   const [entityScores, setEntityScores] = useState<Record<string, JgScoreData>>({});

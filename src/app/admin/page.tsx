@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useSurveyContext } from "@/components/survey-context";
 
 interface Survey {
   id: number;
@@ -20,6 +21,7 @@ interface Survey {
 }
 
 export default function AdminPage() {
+  const { setSelectedSurveyId } = useSurveyContext();
   const [surveys, setSurveys] = useState<Survey[]>([]);
   const [name, setName] = useState("");
   const [conductedAt, setConductedAt] = useState("");
@@ -90,6 +92,7 @@ export default function AdminPage() {
     const data = await res.json();
     if (res.ok) {
       setUploadResult(`${data.count}件の回答をインポートしました（${data.matchedQuestions}/15問マッチ）${data.warnings?.length ? "\n" + data.warnings.join("; ") : ""}`);
+      setSelectedSurveyId(uploadingSurveyId);
       loadSurveys();
       fileInput.value = "";
     } else {
@@ -210,7 +213,12 @@ export default function AdminPage() {
                       {s.status === "active" ? "非公開にする" : "公開する"}
                     </button>
                     <button
-                      onClick={() => { setUploadingSurveyId(s.id); setUploadType("staff"); setUploadResult(null); }}
+                      onClick={() => {
+                        setSelectedSurveyId(s.id);
+                        setUploadingSurveyId(s.id);
+                        setUploadType("staff");
+                        setUploadResult(null);
+                      }}
                       className="text-xs px-3 py-1.5 bg-[#F3F4F6] text-[#374151] rounded-lg hover:bg-[#E5E7EB] transition-colors"
                     >
                       CSVアップ

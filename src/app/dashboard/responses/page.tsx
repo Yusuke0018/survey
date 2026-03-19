@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
 import { ScoreBadge } from "@/components/score-badge";
 import { CLINIC_GROUPS } from "@/lib/clinics";
 import { ENTITY_GROUPS } from "@/lib/entities";
@@ -70,9 +69,7 @@ const JIGYOTAI_TYPES = [
 ];
 
 export default function ResponsesPage() {
-  const searchParams = useSearchParams();
-  const surveyId = searchParams.get("surveyId");
-  const { type: surveyType } = useSurveyContext();
+  const { id: surveyId, type: surveyType } = useSurveyContext();
   const isJigyotai = surveyType === "jigyotai";
 
   const [responses, setResponses] = useState<ResponseItem[]>([]);

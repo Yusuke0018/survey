@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
 import { ScoreBadge } from "@/components/score-badge";
 import { ScoreBar } from "@/components/score-bar";
 import { AreaBadge } from "@/components/area-badge";
@@ -77,9 +76,7 @@ function getAreaColor(area: string): string {
 }
 
 export default function DashboardPage() {
-  const searchParams = useSearchParams();
-  const surveyId = searchParams.get("surveyId");
-  const { type: surveyType } = useSurveyContext();
+  const { id: surveyId, type: surveyType } = useSurveyContext();
 
   // Clinic state
   const [clinicSummary, setClinicSummary] = useState<ClinicSummary | null>(null);

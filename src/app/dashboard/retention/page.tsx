@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
 import { ScoreBadge } from "@/components/score-badge";
 import { useSurveyContext } from "@/components/survey-context";
 import {
@@ -86,9 +85,7 @@ function RetentionTooltip({
 }
 
 export default function RetentionPage() {
-  const searchParams = useSearchParams();
-  const surveyId = searchParams.get("surveyId");
-  const { type: surveyType } = useSurveyContext();
+  const { id: surveyId, type: surveyType } = useSurveyContext();
   const [response, setResponse] = useState<RetentionResponse | null>(null);
 
   useEffect(() => {
