@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { CLINICS } from "@/lib/clinics";
+import { CLINIC_GROUPS } from "@/lib/clinics";
 
 interface Question {
   id: number;
@@ -155,8 +155,12 @@ export default function RespondSurveyPage() {
               className="w-full border border-[#D1D5DB] rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#10B981]/30 focus:border-[#10B981] bg-white"
             >
               <option value="">選択してください</option>
-              {CLINICS.map((c) => (
-                <option key={c} value={c}>{c}</option>
+              {CLINIC_GROUPS.map((group) => (
+                <optgroup key={group.id} label={`${group.icon} ${group.label}`}>
+                  {group.clinics.map((c) => (
+                    <option key={c} value={c}>{c}</option>
+                  ))}
+                </optgroup>
               ))}
             </select>
           </div>

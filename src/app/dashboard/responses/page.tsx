@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { ScoreBadge } from "@/components/score-badge";
 import { AreaBadge } from "@/components/area-badge";
-import { CLINICS } from "@/lib/clinics";
+import { CLINIC_GROUPS } from "@/lib/clinics";
 import type { AreaKey } from "@/lib/questions";
 
 interface ResponseItem {
@@ -92,11 +92,15 @@ export default function ResponsesPage() {
         <select
           value={clinicFilter}
           onChange={(e) => setClinicFilter(e.target.value)}
-          className="border border-[#E2E8F0] rounded-lg px-3 py-1.5 text-sm bg-white"
+          className="border border-[#E5E7EB] rounded-xl px-4 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#10B981]/30"
         >
           <option value="">全拠点</option>
-          {CLINICS.map((c) => (
-            <option key={c} value={c}>{c}</option>
+          {CLINIC_GROUPS.map((group) => (
+            <optgroup key={group.id} label={`${group.icon} ${group.label}`}>
+              {group.clinics.map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </optgroup>
           ))}
         </select>
       </div>
