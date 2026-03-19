@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
-import { getSurvey, getQuestionTemplates, upsertJigyotaiQuestions, withTransaction } from "@/lib/db";
+import { getSurvey, getQuestionTemplates, upsertJigyotaiQuestions, upsertQuestionTemplates, withTransaction } from "@/lib/db";
 import { parseStaffCSVDynamic } from "@/lib/csv-parser";
 import type { QuestionDef } from "@/lib/csv-parser";
 import { getStorageWriteGuardResponse } from "@/lib/storage-mode";
 import { getJigyotaiQuestions } from "@/lib/jigyotai-questions";
+import { QUESTIONS } from "@/lib/questions";
 import { fetchSheetAsCSV } from "@/lib/google-sheets";
 
 function buildAnswerInsert(
@@ -97,6 +98,33 @@ export async function POST(
         staffText: t.staff_text || "",
         directorText: t.director_text || "",
       }));
+
+      // Auto-register clinic question templates if none exist
+      if (questions.length === 0) {
+        await upsertQuestionTemplates(surveyId, QUESTIONS.map((q) => ({
+          num: q.num,
+          staff_text: q.staffText,
+          director_text: q.directorText,
+          area: q.area,
+          area_label: q.areaLabel,
+          respondent_type: null,
+          text: null,
+          short_label: null,
+          core_id: null,
+          scale_type: "agreement",
+          skip_options: null,
+          question_key: q.questionKey,
+          compare_key: q.compareKey,
+        })));
+
+        const newTemplates = await getQuestionTemplates(surveyId);
+        questions = newTemplates.filter((t) => t.respondent_type === null).map((t) => ({
+          templateId: t.id,
+          num: t.num,
+          staffText: t.staff_text || "",
+          directorText: t.director_text || "",
+        }));
+      }
     }
 
     const result = parseStaffCSVDynamic(text, surveyId, questions);
