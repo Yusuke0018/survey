@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
-import { getSurvey, getQuestionTemplates, submitResponse, execute, upsertJigyotaiQuestions } from "@/lib/db";
+import { getSurvey, getQuestionTemplates, execute, upsertJigyotaiQuestions, withTransaction } from "@/lib/db";
 import { parseStaffCSVDynamic } from "@/lib/csv-parser";
 import type { QuestionDef } from "@/lib/csv-parser";
 import { getStorageWriteGuardResponse } from "@/lib/storage-mode";
@@ -98,32 +98,47 @@ export async function POST(
       return NextResponse.json({ error: result.errors.join("; ") }, { status: 400 });
     }
 
-    // Delete existing responses for this type
-    if (survey.survey_type === "jigyotai") {
-      await execute(
-        "DELETE FROM responses WHERE survey_id = ? AND type = ? AND entity IS NOT NULL",
-        [surveyId, respondentType]
-      );
-    } else {
-      await execute(
-        "DELETE FROM responses WHERE survey_id = ? AND type = ? AND entity IS NULL",
-        [surveyId, respondentType]
-      );
-    }
+    // Bulk insert in a single transaction
+    const count = await withTransaction(async (tx) => {
+      // Delete existing responses for this type
+      if (survey.survey_type === "jigyotai") {
+        await tx.execute({
+          sql: "DELETE FROM responses WHERE survey_id = ? AND type = ? AND entity IS NOT NULL",
+          args: [surveyId, respondentType],
+        });
+      } else {
+        await tx.execute({
+          sql: "DELETE FROM responses WHERE survey_id = ? AND type = ? AND entity IS NULL",
+          args: [surveyId, respondentType],
+        });
+      }
 
-    let count = 0;
-    for (const resp of result.responses) {
-      await submitResponse({
-        surveyId,
-        type: respondentType,
-        clinic: survey.survey_type === "clinic" ? resp.clinic : undefined,
-        entity: survey.survey_type === "jigyotai" ? (resp.entity || resp.clinic || "") : undefined,
-        respondentName: respondentType === "staff" ? (resp.respondentName ?? undefined) : undefined,
-        freeText: resp.freeText ?? undefined,
-        answers: resp.answers,
-      });
-      count++;
-    }
+      let inserted = 0;
+      for (const resp of result.responses) {
+        const insertRes = await tx.execute({
+          sql: `INSERT INTO responses (survey_id, type, clinic, entity, respondent_name, free_text, session_token,
+                  owner_provider, owner_subject, owner_email, owner_name)
+                VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL)`,
+          args: [
+            surveyId,
+            respondentType,
+            survey.survey_type === "clinic" ? resp.clinic : "",
+            survey.survey_type === "jigyotai" ? (resp.entity || resp.clinic || "") : null,
+            respondentType === "staff" ? (resp.respondentName || null) : null,
+            resp.freeText || null,
+          ],
+        });
+        const responseId = Number(insertRes.lastInsertRowid);
+        for (const answer of resp.answers) {
+          await tx.execute({
+            sql: "INSERT INTO response_answers (response_id, question_id, score, skip_reason) VALUES (?, ?, ?, NULL)",
+            args: [responseId, answer.questionId, answer.score],
+          });
+        }
+        inserted++;
+      }
+      return inserted;
+    });
 
     return NextResponse.json({
       count,
