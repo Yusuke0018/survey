@@ -566,6 +566,25 @@ surveys (1) ──< director_responses (N) [レガシー]
 - **処理**: CSVパース→レガシーテーブル（staff_responses/director_responses）に挿入
 - **レスポンス**: `{ "count": 50, "matchedQuestions": 15, "totalRows": 50, "warnings": [] }`
 
+#### 管理用 Seed
+
+第1回サーベイのような既存CSVを「初期表示用データ」として投入したい場合は、実データをリポジトリへ同梱せず、管理者がローカルまたは本番環境で seed コマンドを実行する。
+
+```bash
+npm run seed:first-survey -- \
+  --name "第1回スタッフサーベイ" \
+  --conducted-at 2025-01-01 \
+  --staff-csv /absolute/path/staff.csv \
+  --director-csv /absolute/path/director.csv \
+  --activate \
+  --replace
+```
+
+- `--staff-csv` は必須、`--director-csv` は任意
+- `--replace` を付けると、同名・同実施日の既存サーベイに対して質問・回答を削除して再投入
+- `--activate` を付けると seed 後に `active` 化
+- 実データCSVや `data/survey.db` 自体は git 管理に含めない
+
 ### 11.6 分析API（クリニック）
 
 #### `GET /api/surveys/[id]/summary`
