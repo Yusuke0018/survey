@@ -41,10 +41,11 @@ export function middleware(request: NextRequest) {
     if (request.method === "POST" && pathname.match(/^\/api\/surveys\/\d+\/respond$/)) {
       return NextResponse.next();
     }
-    // Block everything else
-    if (request.method !== "GET") {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 });
-    }
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
+  if (pathname.startsWith("/api/trends") && role !== "admin") {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   // Add role to headers for API routes

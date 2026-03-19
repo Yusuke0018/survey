@@ -1,21 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth } from "@/lib/auth";
-import { getClinicStaffAverages, getDirectorResponses } from "@/lib/db";
+import { requireAdmin } from "@/lib/auth";
 import { QUESTIONS, AREAS, AREA_ORDER } from "@/lib/questions";
+import { getClinicLatestDirectorByClinic, getClinicStaffAveragesByClinic } from "@/lib/survey-analytics";
 
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const authError = await requireAuth();
+  const authError = await requireAdmin();
   if (authError) return authError;
 
   const { id } = await params;
   const surveyId = parseInt(id);
 
-  const clinicAverages = getClinicStaffAverages(surveyId);
-  const directorResponses = getDirectorResponses(surveyId) as Array<Record<string, unknown>>;
-  const directorClinics = new Set(directorResponses.map((r) => r.clinic as string));
+  const clinicAverages = getClinicStaffAveragesByClinic(surveyId) as Array<Record<string, number | null> & {
+    clinic: string;
+    count: number;
+  }>;
+  const directorClinics = new Set(getClinicLatestDirectorByClinic(surveyId).keys());
 
   const clinics = clinicAverages.map((ca) => {
     const scores: Record<string, number | null> = {};

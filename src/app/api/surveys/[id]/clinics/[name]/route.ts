@@ -1,13 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth } from "@/lib/auth";
-import { getStaffScoreAverages, getStaffResponses, getDirectorResponses } from "@/lib/db";
+import { requireAdmin } from "@/lib/auth";
 import { QUESTIONS, AREAS, AREA_ORDER, getShortLabel } from "@/lib/questions";
+import {
+  getClinicAverageScores,
+  getClinicLatestDirectorByClinic,
+  getClinicNormalizedResponses,
+} from "@/lib/survey-analytics";
 
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string; name: string }> }
 ) {
-  const authError = await requireAuth();
+  const authError = await requireAdmin();
   if (authError) return authError;
 
   const { id, name } = await params;
@@ -15,21 +19,20 @@ export async function GET(
   const clinicName = decodeURIComponent(name);
 
   // Clinic averages
-  const clinicAvg = getStaffScoreAverages(surveyId, clinicName);
+  const clinicAvg = getClinicAverageScores(surveyId, "staff", clinicName) as Record<string, number | null> & { count: number };
   // Overall averages
-  const overallAvg = getStaffScoreAverages(surveyId);
+  const overallAvg = getClinicAverageScores(surveyId, "staff") as Record<string, number | null> & { count: number };
   // Individual responses
-  const staffResponses = getStaffResponses(surveyId, clinicName) as Array<Record<string, unknown>>;
+  const staffResponses = getClinicNormalizedResponses(surveyId, { type: "staff", clinic: clinicName });
   // Director response
-  const directorResponses = getDirectorResponses(surveyId, clinicName) as Array<Record<string, unknown>>;
-  const directorResponse = directorResponses.length > 0 ? directorResponses[directorResponses.length - 1] : null;
+  const directorResponse = getClinicLatestDirectorByClinic(surveyId).get(clinicName) ?? null;
 
   // Question scores with comparison
   const questionScores = QUESTIONS.map((q) => {
     const clinicScore = clinicAvg[q.id] != null ? Math.round((clinicAvg[q.id] as number) * 100) / 100 : null;
     const globalScore = overallAvg[q.id] != null ? Math.round((overallAvg[q.id] as number) * 100) / 100 : null;
     const diff = clinicScore != null && globalScore != null ? Math.round((clinicScore - globalScore) * 100) / 100 : null;
-    const directorScore = directorResponse ? (directorResponse[q.id] as number | null) : null;
+    const directorScore = directorResponse ? directorResponse.answers[q.id] : null;
 
     return {
       id: q.id,
@@ -62,24 +65,24 @@ export async function GET(
 
   // Individual responses formatted
   const responses = staffResponses.map((r) => {
-    const scores = QUESTIONS.map((q) => r[q.id] as number | null).filter((v): v is number => v != null);
+    const scores = QUESTIONS.map((q) => r.answers[q.id]).filter((v): v is number => v != null);
     const avg = scores.length > 0 ? scores.reduce((a, b) => a + b, 0) / scores.length : 0;
     return {
-      id: r.id,
+      id: r.key,
       timestamp: r.timestamp,
-      name: r.respondent_name || "匿名",
+      name: r.respondentName || "匿名",
       avgScore: Math.round(avg * 100) / 100,
-      freeText: r.free_text || null,
+      freeText: r.freeText || null,
     };
   });
 
   // Free text comments
   const freeTexts = staffResponses
-    .filter((r) => r.free_text && (r.free_text as string).trim())
+    .filter((r) => r.freeText && r.freeText.trim())
     .map((r) => ({
-      text: r.free_text as string,
-      name: (r.respondent_name as string) || "匿名",
-      timestamp: r.timestamp as string,
+      text: r.freeText as string,
+      name: r.respondentName || "匿名",
+      timestamp: r.timestamp || "",
     }));
 
   const allClinicScores = QUESTIONS.map((q) => clinicAvg[q.id] as number | null).filter((v): v is number => v != null);
@@ -111,7 +114,7 @@ export async function GET(
           id: q.id,
           num: q.num,
           shortLabel: getShortLabel(q),
-          directorScore: directorResponse[q.id] as number | null,
+          directorScore: directorResponse.answers[q.id],
           staffScore: clinicAvg[q.id] != null ? Math.round((clinicAvg[q.id] as number) * 100) / 100 : null,
         }))
       : null,

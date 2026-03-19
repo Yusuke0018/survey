@@ -1,35 +1,32 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth } from "@/lib/auth";
-import { getClinicStaffAverages, getDirectorResponses } from "@/lib/db";
+import { requireAdmin } from "@/lib/auth";
 import { QUESTIONS, getShortLabel } from "@/lib/questions";
+import { getClinicLatestDirectorByClinic, getClinicStaffAveragesByClinic } from "@/lib/survey-analytics";
 
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const authError = await requireAuth();
+  const authError = await requireAdmin();
   if (authError) return authError;
 
   const { id } = await params;
   const surveyId = parseInt(id);
 
-  const clinicAverages = getClinicStaffAverages(surveyId);
-  const allDirectors = getDirectorResponses(surveyId) as Array<Record<string, unknown>>;
-
-  // Group directors by clinic (latest only)
-  const directorByClinic: Record<string, Record<string, unknown>> = {};
-  for (const d of allDirectors) {
-    directorByClinic[d.clinic as string] = d;
-  }
+  const clinicAverages = getClinicStaffAveragesByClinic(surveyId) as Array<Record<string, number | null> & {
+    clinic: string;
+    count: number;
+  }>;
+  const directorByClinic = getClinicLatestDirectorByClinic(surveyId);
 
   const gaps = clinicAverages
-    .filter((ca) => directorByClinic[ca.clinic])
+    .filter((ca) => directorByClinic.has(ca.clinic))
     .map((ca) => {
-      const director = directorByClinic[ca.clinic];
+      const director = directorByClinic.get(ca.clinic)!;
 
       const questionGaps = QUESTIONS.map((q) => {
         const staffScore = ca[q.id] != null ? Math.round((ca[q.id] as number) * 100) / 100 : null;
-        const directorScore = director[q.id] as number | null;
+        const directorScore = director.answers[q.id];
         const gap = staffScore != null && directorScore != null ? Math.round((directorScore - staffScore) * 100) / 100 : null;
         return {
           id: q.id,
@@ -44,7 +41,7 @@ export async function GET(
       });
 
       const staffScores = QUESTIONS.map((q) => ca[q.id] as number | null).filter((v): v is number => v != null);
-      const directorScores = QUESTIONS.map((q) => director[q.id] as number | null).filter((v): v is number => v != null);
+      const directorScores = QUESTIONS.map((q) => director.answers[q.id]).filter((v): v is number => v != null);
       const staffAvg = staffScores.length > 0 ? staffScores.reduce((a, b) => a + b, 0) / staffScores.length : 0;
       const directorAvg = directorScores.length > 0 ? directorScores.reduce((a, b) => a + b, 0) / directorScores.length : 0;
 

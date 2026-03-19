@@ -27,6 +27,12 @@ export async function POST(
 
   // Determine response type
   const type = respondentType || "staff";
+  const allowedTypes = survey.survey_type === "jigyotai"
+    ? ["staff", "manager", "corporate"]
+    : ["staff", "director"];
+  if (!allowedTypes.includes(type)) {
+    return NextResponse.json({ error: "無効な回答者タイプです" }, { status: 400 });
+  }
 
   // Check duplicate (corporate planning can submit per entity)
   if (sessionToken) {

@@ -30,7 +30,7 @@ interface ClinicDetail {
     clinicScore: number; globalScore: number;
   }>;
   responses: Array<{
-    id: number; timestamp: string; name: string; avgScore: number; freeText: string | null;
+    id: string; timestamp: string; name: string; avgScore: number; freeText: string | null;
   }>;
   freeTexts: Array<{ text: string; name: string; timestamp: string }>;
   directorResponse: Array<{

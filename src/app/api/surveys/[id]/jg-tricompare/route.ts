@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth } from "@/lib/auth";
+import { requireAdmin } from "@/lib/auth";
 import { getDb, getNewScoreAverages } from "@/lib/db";
 
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const authError = await requireAuth();
+  const authError = await requireAdmin();
   if (authError) return authError;
 
   const { id } = await params;
@@ -25,17 +25,10 @@ export async function GET(
     const managerScores = getNewScoreAverages(surveyId, "manager", e.entity);
     const corporateScores = getNewScoreAverages(surveyId, "corporate", e.entity);
 
-    // Build staff score map by question num
-    const staffMap = new Map(staffScores.map((s) => [s.num, s]));
-
     // Build manager score map by coreId (maps to staff question num)
     const managerByCoreId = new Map(
       managerScores.filter((s) => s.core_id != null).map((s) => [s.core_id!, s])
     );
-
-    // Build corporate score map - corporate doesn't have direct coreId mapping to staff
-    // We'll index by area+short_label for approximate matching
-    const corporateMap = new Map(corporateScores.map((s) => [s.num, s]));
 
     // Build comparison rows: for each staff question, find matching manager score via coreId
     const comparisons = staffScores.map((sq) => {

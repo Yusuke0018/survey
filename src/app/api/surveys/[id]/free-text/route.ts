@@ -1,29 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth } from "@/lib/auth";
-import { getStaffResponses } from "@/lib/db";
+import { requireAdmin } from "@/lib/auth";
+import { getSurveyFreeTextItems, type SurveyResponseType } from "@/lib/survey-analytics";
 
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const authError = await requireAuth();
+  const authError = await requireAdmin();
   if (authError) return authError;
 
   const { id } = await params;
   const surveyId = parseInt(id);
-  const clinic = request.nextUrl.searchParams.get("clinic") || undefined;
+  const type = (request.nextUrl.searchParams.get("type") || undefined) as SurveyResponseType | undefined;
+  const orgUnit =
+    request.nextUrl.searchParams.get("clinic") ||
+    request.nextUrl.searchParams.get("entity") ||
+    undefined;
 
-  const responses = getStaffResponses(surveyId, clinic) as Array<Record<string, unknown>>;
-
-  const freeTexts = responses
-    .filter((r) => r.free_text && (r.free_text as string).trim())
-    .map((r) => ({
-      id: r.id,
-      clinic: r.clinic,
-      name: r.respondent_name || "匿名",
-      timestamp: r.timestamp,
-      text: r.free_text,
-    }));
-
-  return NextResponse.json(freeTexts);
+  return NextResponse.json(getSurveyFreeTextItems(surveyId, { type, orgUnit }));
 }

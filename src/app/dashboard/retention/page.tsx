@@ -3,79 +3,109 @@
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { ScoreBadge } from "@/components/score-badge";
+import { useSurveyContext } from "@/components/survey-context";
 import {
   ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, ReferenceLine, Cell, Label,
 } from "recharts";
 
 interface RetentionData {
-  clinic: string;
-  q7: number;
-  q15: number;
+  unit: string;
+  xScore: number;
+  yScore: number;
   overallAvg: number;
   count: number;
   label: string;
-  level: "critical" | "warning-director" | "warning-other" | "good";
+  level: "critical" | "warning-manager" | "warning-other" | "good";
+}
+
+interface RetentionResponse {
+  surveyType: "clinic" | "jigyotai";
+  unitLabel: string;
+  xQuestionNum: number;
+  yQuestionNum: number;
+  xLabel: string;
+  yLabel: string;
+  data: RetentionData[];
+}
+
+function getLevelColor(level: string) {
+  switch (level) {
+    case "critical": return "#EF4444";
+    case "warning-manager": return "#F59E0B";
+    case "warning-other": return "#F59E0B";
+    case "good": return "#22C55E";
+    default: return "#94A3B8";
+  }
+}
+
+function getLevelBg(level: string) {
+  switch (level) {
+    case "critical": return "#FEE2E2";
+    case "warning-manager": return "#FEF9C3";
+    case "warning-other": return "#FEF9C3";
+    case "good": return "#DCFCE7";
+    default: return "#F1F5F9";
+  }
+}
+
+function getLevelIcon(level: string) {
+  switch (level) {
+    case "critical": return "⚠️";
+    case "warning-manager": return "△";
+    case "warning-other": return "△";
+    case "good": return "○";
+    default: return "";
+  }
+}
+
+function RetentionTooltip({
+  active,
+  payload,
+  xLabel,
+  yLabel,
+}: {
+  active?: boolean;
+  payload?: Array<{ payload: RetentionData }>;
+  xLabel: string;
+  yLabel: string;
+}) {
+  if (!active || !payload || payload.length === 0) {
+    return null;
+  }
+
+  const point = payload[0].payload;
+  return (
+    <div className="bg-white shadow-lg rounded-lg p-3 border border-[#E2E8F0] text-xs">
+      <p className="font-semibold text-[#1E293B]">{point.unit}</p>
+      <p className="text-[#64748B]">{xLabel}: {point.xScore.toFixed(2)}</p>
+      <p className="text-[#64748B]">{yLabel}: {point.yScore.toFixed(2)}</p>
+      <p className="mt-1" style={{ color: getLevelColor(point.level) }}>{point.label}</p>
+    </div>
+  );
 }
 
 export default function RetentionPage() {
   const searchParams = useSearchParams();
   const surveyId = searchParams.get("surveyId");
-  const [data, setData] = useState<RetentionData[]>([]);
+  const { type: surveyType } = useSurveyContext();
+  const [response, setResponse] = useState<RetentionResponse | null>(null);
 
   useEffect(() => {
     if (!surveyId) return;
-    fetch(`/api/surveys/${surveyId}/retention`).then((r) => r.json()).then(setData);
+    fetch(`/api/surveys/${surveyId}/retention`).then((r) => r.json()).then(setResponse);
   }, [surveyId]);
 
   if (!surveyId) {
     return <div className="text-center py-20 text-[#64748B]">サーベイを選択してください</div>;
   }
 
-  const getLevelColor = (level: string) => {
-    switch (level) {
-      case "critical": return "#EF4444";
-      case "warning-director": return "#F59E0B";
-      case "warning-other": return "#F59E0B";
-      case "good": return "#22C55E";
-      default: return "#94A3B8";
-    }
-  };
-
-  const getLevelBg = (level: string) => {
-    switch (level) {
-      case "critical": return "#FEE2E2";
-      case "warning-director": return "#FEF9C3";
-      case "warning-other": return "#FEF9C3";
-      case "good": return "#DCFCE7";
-      default: return "#F1F5F9";
-    }
-  };
-
-  const getLevelIcon = (level: string) => {
-    switch (level) {
-      case "critical": return "⚠️";
-      case "warning-director": return "△";
-      case "warning-other": return "△";
-      case "good": return "○";
-      default: return "";
-    }
-  };
-
-  const CustomTooltip = ({ active, payload }: { active?: boolean; payload?: Array<{ payload: RetentionData }> }) => {
-    if (active && payload && payload.length > 0) {
-      const d = payload[0].payload;
-      return (
-        <div className="bg-white shadow-lg rounded-lg p-3 border border-[#E2E8F0] text-xs">
-          <p className="font-semibold text-[#1E293B]">{d.clinic}</p>
-          <p className="text-[#64748B]">Q7（相談しやすい）: {d.q7.toFixed(2)}</p>
-          <p className="text-[#64748B]">Q15（継続意向）: {d.q15.toFixed(2)}</p>
-          <p className="mt-1" style={{ color: getLevelColor(d.level) }}>{d.label}</p>
-        </div>
-      );
-    }
-    return null;
-  };
+  const data = response?.data ?? [];
+  const xLabel = response?.xLabel || "相談しやすい";
+  const yLabel = response?.yLabel || "継続意向";
+  const xQuestionNum = response?.xQuestionNum || 7;
+  const yQuestionNum = response?.yQuestionNum || (surveyType === "jigyotai" ? 19 : 15);
+  const unitLabel = response?.unitLabel || (surveyType === "jigyotai" ? "事業体" : "拠点");
 
   return (
     <div>
@@ -84,32 +114,32 @@ export default function RetentionPage() {
       {/* Scatter Plot */}
       <div className="bg-white rounded-xl border border-[#E2E8F0] p-5 shadow-sm mb-8">
         <h3 className="text-[15px] font-medium text-[#1E293B] mb-4">
-          Q7（院長への相談しやすさ）× Q15（継続意向）散布図
+          Q{xQuestionNum}（{xLabel}）× Q{yQuestionNum}（{yLabel}）散布図
         </h3>
         <ResponsiveContainer width="100%" height={450}>
           <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#E2E8F0" />
             <XAxis
               type="number"
-              dataKey="q7"
+              dataKey="xScore"
               domain={[1, 5]}
               tick={{ fontSize: 11 }}
-              name="Q7 相談しやすい"
+              name={xLabel}
             >
-              <Label value="Q7 院長に相談しやすい →" position="bottom" offset={0} style={{ fontSize: 11, fill: "#64748B" }} />
+              <Label value={`Q${xQuestionNum} ${xLabel} →`} position="bottom" offset={0} style={{ fontSize: 11, fill: "#64748B" }} />
             </XAxis>
             <YAxis
               type="number"
-              dataKey="q15"
+              dataKey="yScore"
               domain={[1, 5]}
               tick={{ fontSize: 11 }}
-              name="Q15 継続意向"
+              name={yLabel}
             >
-              <Label value="Q15 働き続けたい →" angle={-90} position="insideLeft" offset={5} style={{ fontSize: 11, fill: "#64748B" }} />
+              <Label value={`Q${yQuestionNum} ${yLabel} →`} angle={-90} position="insideLeft" offset={5} style={{ fontSize: 11, fill: "#64748B" }} />
             </YAxis>
             <ReferenceLine x={3} stroke="#94A3B8" strokeDasharray="4 4" />
             <ReferenceLine y={3} stroke="#94A3B8" strokeDasharray="4 4" />
-            <Tooltip content={<CustomTooltip />} />
+            <Tooltip content={<RetentionTooltip xLabel={xLabel} yLabel={yLabel} />} />
             <Scatter data={data} animationDuration={800}>
               {data.map((d, i) => (
                 <Cell key={i} fill={getLevelColor(d.level)} r={8} />
@@ -130,12 +160,12 @@ export default function RetentionPage() {
       <div className="grid grid-cols-2 gap-4">
         {data
           .sort((a, b) => {
-            const order = { critical: 0, "warning-director": 1, "warning-other": 2, good: 3 };
+            const order = { critical: 0, "warning-manager": 1, "warning-other": 2, good: 3 };
             return order[a.level] - order[b.level];
           })
           .map((d) => (
           <div
-            key={d.clinic}
+            key={d.unit}
             className="rounded-xl border p-4 shadow-sm"
             style={{
               backgroundColor: getLevelBg(d.level),
@@ -143,15 +173,15 @@ export default function RetentionPage() {
             }}
           >
             <div className="flex items-center justify-between mb-2">
-              <h4 className="text-sm font-semibold text-[#1E293B]">{d.clinic}</h4>
+              <h4 className="text-sm font-semibold text-[#1E293B]">{d.unit}</h4>
               <span className="text-lg">{getLevelIcon(d.level)}</span>
             </div>
             <p className="text-xs font-medium mb-2" style={{ color: getLevelColor(d.level) }}>{d.label}</p>
             <div className="flex gap-4 text-xs text-[#64748B]">
-              <span>Q7: {d.q7.toFixed(2)}</span>
-              <span>Q15: {d.q15.toFixed(2)}</span>
+              <span>Q{xQuestionNum}: {d.xScore.toFixed(2)}</span>
+              <span>Q{yQuestionNum}: {d.yScore.toFixed(2)}</span>
               <span>全体平均: <ScoreBadge score={d.overallAvg} size="sm" /></span>
-              <span>回答: {d.count}名</span>
+              <span>{unitLabel}回答: {d.count}件</span>
             </div>
           </div>
         ))}

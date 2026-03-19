@@ -9,6 +9,7 @@ interface Question {
   id: number;
   num: number;
   staff_text: string;
+  director_text: string;
   text: string | null;
   area: string;
   area_label: string;
@@ -22,7 +23,7 @@ interface SurveyMeta {
   survey_type: string;
 }
 
-type RespondentType = "staff" | "manager" | "corporate";
+type RespondentType = "staff" | "director" | "manager" | "corporate";
 
 const SKIP_LABELS: Record<string, string> = {
   "1": "関わりがないため回答できない",
@@ -54,30 +55,30 @@ export default function RespondSurveyPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
 
-  // Load survey metadata and questions
   useEffect(() => {
-    const rType = surveyMeta?.survey_type === "jigyotai" ? respondentType : undefined;
-    const url = rType
-      ? `/api/surveys/${surveyId}/questions?respondentType=${rType}`
+    fetch(`/api/surveys/${surveyId}/questions`)
+      .then((r) => r.json())
+      .then((data) => {
+        setSurveyMeta({ survey_type: data.survey_type });
+        if (data.survey_type !== "jigyotai" && Array.isArray(data.questions)) {
+          setQuestions(data.questions);
+        }
+      });
+  }, [surveyId]);
+
+  useEffect(() => {
+    if (!surveyMeta) return;
+    const url = surveyMeta.survey_type === "jigyotai"
+      ? `/api/surveys/${surveyId}/questions?respondentType=${respondentType}`
       : `/api/surveys/${surveyId}/questions`;
 
     fetch(url)
       .then((r) => r.json())
       .then((data) => {
-        setSurveyMeta({ survey_type: data.survey_type });
-        if (Array.isArray(data.questions)) {
-          setQuestions(data.questions);
-        }
+        setQuestions(Array.isArray(data.questions) ? data.questions : []);
         setLoading(false);
       });
-  }, [surveyId, respondentType, surveyMeta?.survey_type]);
-
-  // Reset answers when respondent type changes
-  useEffect(() => {
-    setAnswers({});
-    setSkips({});
-    setFreeText("");
-  }, [respondentType]);
+  }, [surveyId, respondentType, surveyMeta]);
 
   const isJigyotai = surveyMeta?.survey_type === "jigyotai";
 
@@ -99,6 +100,16 @@ export default function RespondSurveyPage() {
   const handleSkip = (questionId: number, skipKey: string) => {
     setSkips((prev) => ({ ...prev, [questionId]: SKIP_LABELS[skipKey] || skipKey }));
     setAnswers((prev) => ({ ...prev, [questionId]: null }));
+  };
+
+  const handleRespondentTypeChange = (nextType: RespondentType) => {
+    setLoading(true);
+    setRespondentType(nextType);
+    setAnswers({});
+    setSkips({});
+    setFreeText("");
+    setSubmitted(false);
+    setError("");
   };
 
   const isAnswered = (q: Question) => answers[q.id] !== undefined || skips[q.id];
@@ -200,7 +211,12 @@ export default function RespondSurveyPage() {
   const total = questions.length;
   const allAnswered = answeredCount === total && total > 0;
 
-  const getQuestionText = (q: Question) => q.text || q.staff_text;
+  const getQuestionText = (q: Question) => {
+    if (!isJigyotai && respondentType === "director") {
+      return q.director_text || q.staff_text;
+    }
+    return q.text || q.staff_text;
+  };
   const getSkipKeys = (q: Question): string[] => {
     if (!q.skip_options) return [];
     return q.skip_options.split("").filter(k => k !== "0");
@@ -208,29 +224,40 @@ export default function RespondSurveyPage() {
 
   return (
     <div>
-      {/* Respondent Type Selector (jigyotai only) */}
+      {/* Respondent Type Selector */}
+      <div className="bg-white rounded-xl border border-[#E5E7EB] p-5 shadow-sm mb-6">
+        <label className="block text-sm font-medium text-[#374151] mb-3">回答者タイプ</label>
+        <div className="flex gap-2">
+          {(isJigyotai
+            ? [
+                { type: "staff" as const, label: "スタッフ", icon: "👤" },
+                { type: "manager" as const, label: "事業責任者/現場責任者", icon: "👔" },
+                { type: "corporate" as const, label: "経営企画室", icon: "🏛️" },
+              ]
+            : [
+                { type: "staff" as const, label: "スタッフ", icon: "👤" },
+                { type: "director" as const, label: "院長", icon: "🩺" },
+              ]).map(({ type, label, icon }) => (
+            <button
+              key={type}
+              onClick={() => handleRespondentTypeChange(type)}
+              className={`flex-1 py-3 rounded-xl text-sm font-medium transition-all ${
+                respondentType === type
+                  ? "bg-[#10B981] text-white shadow-sm"
+                  : "bg-[#F9FAFB] text-[#6B7280] border border-[#E5E7EB] hover:bg-[#F3F4F6]"
+              }`}
+            >
+              {icon} {label}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {isJigyotai && (
         <div className="bg-white rounded-xl border border-[#E5E7EB] p-5 shadow-sm mb-6">
-          <label className="block text-sm font-medium text-[#374151] mb-3">回答者タイプ</label>
-          <div className="flex gap-2">
-            {([
-              { type: "staff" as const, label: "スタッフ", icon: "👤" },
-              { type: "manager" as const, label: "事業責任者/現場責任者", icon: "👔" },
-              { type: "corporate" as const, label: "経営企画室", icon: "🏛️" },
-            ]).map(({ type, label, icon }) => (
-              <button
-                key={type}
-                onClick={() => setRespondentType(type)}
-                className={`flex-1 py-3 rounded-xl text-sm font-medium transition-all ${
-                  respondentType === type
-                    ? "bg-[#10B981] text-white shadow-sm"
-                    : "bg-[#F9FAFB] text-[#6B7280] border border-[#E5E7EB] hover:bg-[#F3F4F6]"
-                }`}
-              >
-                {icon} {label}
-              </button>
-            ))}
-          </div>
+          <p className="text-xs text-[#6B7280]">
+            経営企画室は事業体ごとに回答できます。その他の回答者タイプはサーベイごとに1回です。
+          </p>
         </div>
       )}
 

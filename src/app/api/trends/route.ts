@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth } from "@/lib/auth";
-import { getSurvey, getStaffScoreAverages, getClinicStaffAverages } from "@/lib/db";
+import { requireAdmin } from "@/lib/auth";
+import { getSurvey } from "@/lib/db";
 import { QUESTIONS, AREAS, AREA_ORDER } from "@/lib/questions";
+import { getClinicAverageScores, getClinicStaffAveragesByClinic } from "@/lib/survey-analytics";
 
 export async function GET(request: NextRequest) {
-  const authError = await requireAuth();
+  const authError = await requireAdmin();
   if (authError) return authError;
 
   const idsParam = request.nextUrl.searchParams.get("ids");
@@ -18,8 +19,11 @@ export async function GET(request: NextRequest) {
     const survey = getSurvey(surveyId);
     if (!survey) return null;
 
-    const avg = getStaffScoreAverages(surveyId);
-    const clinicAverages = getClinicStaffAverages(surveyId);
+    const avg = getClinicAverageScores(surveyId, "staff") as Record<string, number | null> & { count: number };
+    const clinicAverages = getClinicStaffAveragesByClinic(surveyId) as Array<Record<string, number | null> & {
+      clinic: string;
+      count: number;
+    }>;
 
     const areaAverages = AREA_ORDER.map((key) => {
       const areaQuestions = QUESTIONS.filter((q) => q.area === key);

@@ -1,18 +1,21 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth } from "@/lib/auth";
-import { getClinicStaffAverages } from "@/lib/db";
+import { requireAdmin } from "@/lib/auth";
 import { QUESTIONS, getShortLabel } from "@/lib/questions";
+import { getClinicStaffAveragesByClinic } from "@/lib/survey-analytics";
 
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const authError = await requireAuth();
+  const authError = await requireAdmin();
   if (authError) return authError;
 
   const { id } = await params;
   const surveyId = parseInt(id);
-  const clinicAverages = getClinicStaffAverages(surveyId);
+  const clinicAverages = getClinicStaffAveragesByClinic(surveyId) as Array<Record<string, number | null> & {
+    clinic: string;
+    count: number;
+  }>;
 
   const clinics = clinicAverages.map((ca) => ca.clinic);
 

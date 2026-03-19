@@ -19,23 +19,27 @@ export function useSurveyContext() {
 export function SurveyProvider({ children }: { children: ReactNode }) {
   const searchParams = useSearchParams();
   const surveyId = searchParams.get("surveyId");
-  const [info, setInfo] = useState<SurveyInfo>({ id: null, type: "clinic" });
+  const numericSurveyId = surveyId ? parseInt(surveyId) : null;
+  const [type, setType] = useState<SurveyType>("clinic");
 
   useEffect(() => {
-    if (!surveyId) {
-      setInfo({ id: null, type: "clinic" });
+    if (!numericSurveyId) {
       return;
     }
-    const id = parseInt(surveyId);
-    // Fetch surveys list and find the type
+
     fetch("/api/surveys")
       .then((r) => r.json())
       .then((surveys: Array<{ id: number; survey_type: SurveyType }>) => {
-        const found = surveys.find((s) => s.id === id);
-        setInfo({ id, type: found?.survey_type || "clinic" });
+        const found = surveys.find((s) => s.id === numericSurveyId);
+        setType(found?.survey_type || "clinic");
       })
-      .catch(() => setInfo({ id, type: "clinic" }));
-  }, [surveyId]);
+      .catch(() => setType("clinic"));
+  }, [numericSurveyId]);
+
+  const info: SurveyInfo = {
+    id: numericSurveyId,
+    type: numericSurveyId ? type : "clinic",
+  };
 
   return (
     <SurveyContext.Provider value={info}>

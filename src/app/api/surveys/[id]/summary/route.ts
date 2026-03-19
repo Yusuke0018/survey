@@ -1,13 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireAuth } from "@/lib/auth";
-import { getStaffScoreAverages, getDirectorResponses, getDb, getSurvey, getNewScoreAverages } from "@/lib/db";
+import { requireAdmin } from "@/lib/auth";
+import { getDb, getSurvey, getNewScoreAverages } from "@/lib/db";
 import { QUESTIONS } from "@/lib/questions";
+import { getClinicAverageScores, getClinicNormalizedResponses } from "@/lib/survey-analytics";
 
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const authError = await requireAuth();
+  const authError = await requireAdmin();
   if (authError) return authError;
 
   const { id } = await params;
@@ -60,12 +61,9 @@ export async function GET(
   }
 
   // Clinic survey summary (original)
-  const staffAvg = getStaffScoreAverages(surveyId);
-  const directorResponses = getDirectorResponses(surveyId);
-
-  const db = getDb();
-  const staffCount = (db.prepare("SELECT COUNT(*) as c FROM staff_responses WHERE survey_id = ?").get(surveyId) as { c: number }).c;
-  const directorCount = directorResponses.length;
+  const staffAvg = getClinicAverageScores(surveyId, "staff");
+  const staffCount = staffAvg.count;
+  const directorCount = getClinicNormalizedResponses(surveyId, { type: "director" }).length;
 
   const scores: number[] = [];
   let highestQ = { num: 0, score: 0, area: "" };
