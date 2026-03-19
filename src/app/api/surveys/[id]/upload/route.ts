@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
-import { getSurvey, getQuestionTemplates, submitResponse, execute } from "@/lib/db";
+import { getSurvey, getQuestionTemplates, submitResponse, execute, upsertJigyotaiQuestions } from "@/lib/db";
 import { parseStaffCSVDynamic } from "@/lib/csv-parser";
 import type { QuestionDef } from "@/lib/csv-parser";
 import { getStorageWriteGuardResponse } from "@/lib/storage-mode";
+import { getJigyotaiQuestions } from "@/lib/jigyotai-questions";
 
 export async function POST(
   request: NextRequest,
@@ -59,9 +60,27 @@ export async function POST(
       }));
 
       if (questions.length === 0) {
-        return NextResponse.json({
-          error: `この回答者タイプ(${respondentType})の質問テンプレートが未設定です。先に質問編集画面で質問を登録してください。`,
-        }, { status: 400 });
+        // Auto-register default jigyotai questions
+        const defaults = getJigyotaiQuestions(respondentType as "staff" | "manager" | "corporate");
+        await upsertJigyotaiQuestions(surveyId, respondentType, defaults.map((q) => ({
+          num: q.id,
+          text: q.text,
+          area: q.area,
+          short_label: q.short,
+          core_id: q.coreId,
+          scale_type: q.isCompensation ? "compensation" : "agreement",
+          skip_options: q.skip,
+        })));
+
+        // Re-fetch templates after auto-registration
+        const newTemplates = await getQuestionTemplates(surveyId, respondentType);
+        questions = newTemplates.map((t) => ({
+          templateId: t.id,
+          num: t.num,
+          staffText: t.staff_text || "",
+          directorText: t.director_text || "",
+          text: t.text || "",
+        }));
       }
     } else {
       const filtered = templates.filter((t) => t.respondent_type === null);
