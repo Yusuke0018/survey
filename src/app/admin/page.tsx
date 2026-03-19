@@ -103,20 +103,24 @@ export default function AdminPage() {
     formData.append("type", uploadType);
 
     setUploadResult(null);
-    const res = await fetch(`/api/surveys/${uploadingSurveyId}/upload`, {
-      method: "POST",
-      body: formData,
-    });
+    try {
+      const res = await fetch(`/api/surveys/${uploadingSurveyId}/upload`, {
+        method: "POST",
+        body: formData,
+      });
 
-    const data = await res.json();
-    if (res.ok) {
-      const matched = data.totalQuestions ? `${data.matchedQuestions}/${data.totalQuestions}問マッチ` : `${data.matchedQuestions}問マッチ`;
-      setUploadResult(`${data.count}件の回答をインポートしました（${matched}）${data.warnings?.length ? "\n" + data.warnings.join("; ") : ""}`);
-      setSelectedSurveyId(uploadingSurveyId);
-      loadSurveys();
-      fileInput.value = "";
-    } else {
-      setUploadResult(`エラー: ${data.error}`);
+      const data = await res.json();
+      if (res.ok) {
+        const matched = data.totalQuestions ? `${data.matchedQuestions}/${data.totalQuestions}問マッチ` : `${data.matchedQuestions}問マッチ`;
+        setUploadResult(`${data.count}件の回答をインポートしました（${matched}）${data.warnings?.length ? "\n" + data.warnings.join("; ") : ""}`);
+        setSelectedSurveyId(uploadingSurveyId);
+        loadSurveys();
+        fileInput.value = "";
+      } else {
+        setUploadResult(`エラー: ${data.error || res.statusText}`);
+      }
+    } catch (err) {
+      setUploadResult(`エラー: ${err instanceof Error ? err.message : "通信エラーが発生しました"}`);
     }
   };
 

@@ -229,17 +229,20 @@ export function parseDirectorCSV(csvText: string, surveyId: number): ParseResult
 
 function matchQuestionColumnDynamic(header: string, questions: QuestionDef[]): number | null {
   const trimmed = header.trim();
-  // Also try stripping "Q1. " or "Q12. " prefix from header for matching
+  // Strip "Q1. " or "Q12. " prefix from header for matching
   const stripped = trimmed.replace(/^Q\d+\.\s*/, "");
 
   for (const q of questions) {
-    const candidates = [
-      q.staffText?.substring(0, 20),
-      q.directorText?.substring(0, 20),
-      q.text?.substring(0, 20),
-    ].filter(Boolean) as string[];
-    for (const prefix of candidates) {
-      if (prefix && (trimmed.includes(prefix) || stripped.includes(prefix))) {
+    const candidates = [q.staffText, q.directorText, q.text].filter(Boolean) as string[];
+    for (const fullText of candidates) {
+      const prefix = fullText.substring(0, 15);
+      if (!prefix) continue;
+      // Check both directions: header contains prefix, OR prefix/text contains stripped header
+      if (
+        trimmed.includes(prefix) ||
+        stripped.includes(prefix) ||
+        (stripped.length >= 8 && fullText.includes(stripped))
+      ) {
         return q.templateId;
       }
     }
