@@ -3,8 +3,12 @@ import path from "path";
 import fs from "fs";
 
 const IS_VERCEL = !!process.env.VERCEL;
-const DATA_DIR = IS_VERCEL ? "/tmp" : path.join(process.cwd(), "data");
-const DB_PATH = path.join(DATA_DIR, "survey.db");
+const DB_PATH = process.env.SQLITE_DB_PATH || (
+  IS_VERCEL
+    ? "/tmp/survey.db"
+    : path.join(process.cwd(), "data", "survey.db")
+);
+const DATA_DIR = path.dirname(DB_PATH);
 
 let _db: Database.Database | null = null;
 

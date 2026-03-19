@@ -20,9 +20,16 @@ interface Survey {
   question_count: number;
 }
 
+interface StorageInfo {
+  mode: string;
+  writesEnabled: boolean;
+  message: string | null;
+}
+
 export default function AdminPage() {
   const { setSelectedSurveyId } = useSurveyContext();
   const [surveys, setSurveys] = useState<Survey[]>([]);
+  const [storageInfo, setStorageInfo] = useState<StorageInfo | null>(null);
   const [name, setName] = useState("");
   const [conductedAt, setConductedAt] = useState("");
   const [surveyType, setSurveyType] = useState<"clinic" | "jigyotai">("clinic");
@@ -38,6 +45,17 @@ export default function AdminPage() {
   };
 
   useEffect(() => { loadSurveys(); }, []);
+
+  useEffect(() => {
+    fetch("/api/storage")
+      .then((r) => r.json())
+      .then((data) => {
+        if (typeof data?.writesEnabled === "boolean") {
+          setStorageInfo(data as StorageInfo);
+        }
+      })
+      .catch(() => setStorageInfo(null));
+  }, []);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -110,6 +128,13 @@ export default function AdminPage() {
   return (
     <div>
       <h2 className="text-xl font-bold text-[#111827] mb-6">データ管理</h2>
+
+      {storageInfo && !storageInfo.writesEnabled && storageInfo.message && (
+        <div className="bg-[#FEF2F2] border border-[#FECACA] rounded-xl p-4 shadow-sm mb-6">
+          <p className="text-sm font-semibold text-[#B91C1C] mb-1">保存機能は無効です</p>
+          <p className="text-sm text-[#7F1D1D]">{storageInfo.message}</p>
+        </div>
+      )}
 
       {/* Create Survey */}
       <div className="bg-white rounded-xl border border-[#E5E7EB] p-5 shadow-sm mb-8">

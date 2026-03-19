@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
 import { getSurvey, insertStaffResponses } from "@/lib/db";
 import { parseStaffCSV } from "@/lib/csv-parser";
+import { getStorageWriteGuardResponse } from "@/lib/storage-mode";
 
 export async function POST(
   request: NextRequest,
@@ -9,6 +10,9 @@ export async function POST(
 ) {
   const authError = await requireAdmin();
   if (authError) return authError;
+
+  const storageError = getStorageWriteGuardResponse();
+  if (storageError) return storageError;
 
   const { id } = await params;
   const surveyId = parseInt(id);

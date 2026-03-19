@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
 import { getSurvey, deleteSurvey, updateSurveyStatus } from "@/lib/db";
+import { getStorageWriteGuardResponse } from "@/lib/storage-mode";
 
 export async function GET(
   _request: NextRequest,
@@ -24,6 +25,9 @@ export async function PATCH(
   const authError = await requireAdmin();
   if (authError) return authError;
 
+  const storageError = getStorageWriteGuardResponse();
+  if (storageError) return storageError;
+
   const { id } = await params;
   const surveyId = parseInt(id);
   const survey = getSurvey(surveyId);
@@ -46,6 +50,9 @@ export async function DELETE(
 ) {
   const authError = await requireAdmin();
   if (authError) return authError;
+
+  const storageError = getStorageWriteGuardResponse();
+  if (storageError) return storageError;
 
   const { id } = await params;
   deleteSurvey(parseInt(id));

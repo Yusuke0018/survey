@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getQuestionTemplates, upsertQuestionTemplates, upsertJigyotaiQuestions, getSurvey } from "@/lib/db";
 import { requireAdmin } from "@/lib/auth";
+import { getStorageWriteGuardResponse } from "@/lib/storage-mode";
 
 export async function GET(
   request: NextRequest,
@@ -24,6 +25,9 @@ export async function PUT(
 ) {
   const authError = await requireAdmin();
   if (authError) return authError;
+
+  const storageError = getStorageWriteGuardResponse();
+  if (storageError) return storageError;
 
   const { id } = await params;
   const surveyId = parseInt(id);

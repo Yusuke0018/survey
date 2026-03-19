@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getSurvey, getQuestionTemplates, submitResponse, hasSubmitted } from "@/lib/db";
+import { getStorageWriteGuardResponse } from "@/lib/storage-mode";
 
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const storageError = getStorageWriteGuardResponse();
+  if (storageError) return storageError;
+
   const { id } = await params;
   const surveyId = parseInt(id);
 

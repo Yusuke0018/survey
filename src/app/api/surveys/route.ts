@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
 import { getAllSurveys, createSurvey } from "@/lib/db";
+import { getStorageWriteGuardResponse } from "@/lib/storage-mode";
 
 export async function GET() {
   const authError = await requireAdmin();
@@ -13,6 +14,9 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   const authError = await requireAdmin();
   if (authError) return authError;
+
+  const storageError = getStorageWriteGuardResponse();
+  if (storageError) return storageError;
 
   const { name, conducted_at, survey_type } = await request.json();
   if (!name || !conducted_at) {
