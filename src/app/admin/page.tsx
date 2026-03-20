@@ -37,7 +37,6 @@ export default function AdminPage() {
 
   // Upload states
   const [uploadingSurveyId, setUploadingSurveyId] = useState<number | null>(null);
-  const [uploadType, setUploadType] = useState<string>("staff");
   const [uploadResult, setUploadResult] = useState<string | null>(null);
   const [importMode, setImportMode] = useState<"sheet" | "csv">("sheet");
   const [sheetUrl, setSheetUrl] = useState("");
@@ -103,13 +102,14 @@ export default function AdminPage() {
       const res = await fetch(`/api/surveys/${uploadingSurveyId}/import-sheet`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ url: sheetUrl, type: uploadType }),
+        body: JSON.stringify({ url: sheetUrl }),
       });
 
       const data = await res.json();
       if (res.ok) {
         const matched = data.totalQuestions ? `${data.matchedQuestions}/${data.totalQuestions}問マッチ` : `${data.matchedQuestions}問マッチ`;
-        setUploadResult(`${data.count}件の回答をインポートしました（${matched}）${data.warnings?.length ? "\n" + data.warnings.join("; ") : ""}`);
+        const typeLabel = { staff: "スタッフ", director: "院長", manager: "責任者", corporate: "経営企画室" }[data.detectedType as string] || data.detectedType;
+        setUploadResult(`${data.count}件の回答をインポートしました\n自動判定: ${typeLabel}回答（${matched}）${data.warnings?.length ? "\n" + data.warnings.join("; ") : ""}`);
         setSelectedSurveyId(uploadingSurveyId);
         loadSurveys();
         setSheetUrl("");
@@ -133,7 +133,6 @@ export default function AdminPage() {
 
     const formData = new FormData();
     formData.append("csv", fileInput.files[0]);
-    formData.append("type", uploadType);
 
     setUploadResult(null);
     try {
@@ -145,7 +144,8 @@ export default function AdminPage() {
       const data = await res.json();
       if (res.ok) {
         const matched = data.totalQuestions ? `${data.matchedQuestions}/${data.totalQuestions}問マッチ` : `${data.matchedQuestions}問マッチ`;
-        setUploadResult(`${data.count}件の回答をインポートしました（${matched}）${data.warnings?.length ? "\n" + data.warnings.join("; ") : ""}`);
+        const typeLabel = { staff: "スタッフ", director: "院長", manager: "責任者", corporate: "経営企画室" }[data.detectedType as string] || data.detectedType;
+        setUploadResult(`${data.count}件の回答をインポートしました\n自動判定: ${typeLabel}回答（${matched}）${data.warnings?.length ? "\n" + data.warnings.join("; ") : ""}`);
         setSelectedSurveyId(uploadingSurveyId);
         loadSurveys();
         fileInput.value = "";
@@ -280,7 +280,6 @@ export default function AdminPage() {
                       onClick={() => {
                         setSelectedSurveyId(s.id);
                         setUploadingSurveyId(s.id);
-                        setUploadType("staff");
                         setUploadResult(null);
                         setImportMode("sheet");
                         setSheetUrl("");
@@ -310,7 +309,6 @@ export default function AdminPage() {
 
       {/* Import Modal */}
       {uploadingSurveyId && (() => {
-        const uploadingSurvey = surveys.find((s) => s.id === uploadingSurveyId);
         return (
         <div className="fixed inset-0 bg-black/30 flex items-center justify-center z-50">
           <div className="bg-white rounded-2xl shadow-xl p-6 w-full max-w-md animate-scale-in">
@@ -347,30 +345,9 @@ export default function AdminPage() {
               </button>
             </div>
 
-            {/* Respondent type selector */}
-            <div className="flex gap-2 mb-4">
-              {(uploadingSurvey?.survey_type === "jigyotai"
-                ? [
-                    { type: "staff", label: "スタッフ回答", activeColor: "bg-[#10B981]" },
-                    { type: "manager", label: "責任者回答", activeColor: "bg-[#8B5CF6]" },
-                    { type: "corporate", label: "経営企画室回答", activeColor: "bg-[#F59E0B]" },
-                  ]
-                : [
-                    { type: "staff", label: "スタッフ回答", activeColor: "bg-[#10B981]" },
-                    { type: "director", label: "院長回答", activeColor: "bg-[#8B5CF6]" },
-                  ]
-              ).map((entry) => (
-                <button
-                  key={entry.type}
-                  onClick={() => setUploadType(entry.type)}
-                  className={`flex-1 py-2 rounded-lg text-xs font-medium transition-colors ${
-                    uploadType === entry.type ? `${entry.activeColor} text-white` : "bg-[#F3F4F6] text-[#6B7280]"
-                  }`}
-                >
-                  {entry.label}
-                </button>
-              ))}
-            </div>
+            <p className="text-[10px] text-[#9CA3AF] mb-3">
+              回答者タイプ（スタッフ/責任者/院長等）は質問内容から自動判定されます
+            </p>
 
             {importMode === "sheet" ? (
               <form onSubmit={handleSheetImport}>

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/lib/auth";
 import { getSurvey, getQuestionTemplates, upsertJigyotaiQuestions, upsertQuestionTemplates, withTransaction } from "@/lib/db";
-import { parseStaffCSVDynamic } from "@/lib/csv-parser";
+import { parseStaffCSVDynamic, detectRespondentType } from "@/lib/csv-parser";
 import type { QuestionDef } from "@/lib/csv-parser";
 import { getStorageWriteGuardResponse } from "@/lib/storage-mode";
 import { getJigyotaiQuestions } from "@/lib/jigyotai-questions";
@@ -18,6 +18,101 @@ function buildAnswerInsert(
       .join(", ")}`,
     args: answers.flatMap((answer) => [responseId, answer.questionId, answer.score]),
   };
+}
+
+/**
+ * 事業体サーベイの全タイプの質問テンプレートを準備して返す
+ */
+async function prepareJigyotaiQuestionsByType(
+  surveyId: number
+): Promise<Record<string, QuestionDef[]>> {
+  const types = ["staff", "manager", "corporate"] as const;
+  const result: Record<string, QuestionDef[]> = {};
+
+  for (const t of types) {
+    let templates = await getQuestionTemplates(surveyId, t);
+
+    if (templates.length === 0) {
+      // 未登録の場合はデフォルト質問を自動登録
+      const defaults = getJigyotaiQuestions(t);
+      await upsertJigyotaiQuestions(surveyId, t, defaults.map((q) => ({
+        num: q.id,
+        text: q.text,
+        area: q.area,
+        short_label: q.short,
+        core_id: q.coreId,
+        scale_type: q.isCompensation ? "compensation" : "agreement",
+        skip_options: q.skip,
+      })));
+      templates = await getQuestionTemplates(surveyId, t);
+    }
+
+    result[t] = templates.map((tmpl) => ({
+      templateId: tmpl.id,
+      num: tmpl.num,
+      staffText: tmpl.staff_text || "",
+      directorText: tmpl.director_text || "",
+      text: tmpl.text || "",
+    }));
+  }
+
+  return result;
+}
+
+/**
+ * クリニックサーベイの全タイプの質問テンプレートを準備して返す
+ */
+async function prepareClinicQuestionsByType(
+  surveyId: number
+): Promise<Record<string, QuestionDef[]>> {
+  let templates = await getQuestionTemplates(surveyId);
+  let clinicTemplates = templates.filter((t) => t.respondent_type === null);
+
+  if (clinicTemplates.length === 0) {
+    await upsertQuestionTemplates(surveyId, QUESTIONS.map((q) => ({
+      num: q.num,
+      staff_text: q.staffText,
+      director_text: q.directorText,
+      area: q.area,
+      area_label: q.areaLabel,
+      respondent_type: null,
+      text: null,
+      short_label: null,
+      core_id: null,
+      scale_type: "agreement",
+      skip_options: null,
+      question_key: q.questionKey,
+      compare_key: q.compareKey,
+    })));
+    templates = await getQuestionTemplates(surveyId);
+    clinicTemplates = templates.filter((t) => t.respondent_type === null);
+  }
+
+  const questionsForStaff: QuestionDef[] = clinicTemplates.map((t) => ({
+    templateId: t.id,
+    num: t.num,
+    staffText: t.staff_text || "",
+    directorText: "",
+    text: t.staff_text || "",
+  }));
+
+  const questionsForDirector: QuestionDef[] = clinicTemplates.map((t) => ({
+    templateId: t.id,
+    num: t.num,
+    staffText: "",
+    directorText: t.director_text || "",
+    text: t.director_text || "",
+  }));
+
+  // 共通のテンプレート（両方のテキストを含む）もフォールバック用に用意
+  const questionsCommon: QuestionDef[] = clinicTemplates.map((t) => ({
+    templateId: t.id,
+    num: t.num,
+    staffText: t.staff_text || "",
+    directorText: t.director_text || "",
+  }));
+
+  return { staff: questionsForStaff, director: questionsForDirector, _common: questionsCommon };
 }
 
 export async function POST(
@@ -39,92 +134,36 @@ export async function POST(
     }
 
     const body = await request.json();
-    const { url, type: respondentType = "staff" } = body as { url: string; type?: string };
+    const { url } = body as { url: string };
 
     if (!url) {
       return NextResponse.json({ error: "スプレッドシートのURLが必要です" }, { status: 400 });
     }
 
-    const validTypes = survey.survey_type === "jigyotai"
-      ? ["staff", "manager", "corporate"]
-      : ["staff", "director"];
-    if (!validTypes.includes(respondentType)) {
-      return NextResponse.json({ error: `無効な回答者タイプ: ${respondentType}` }, { status: 400 });
-    }
-
     // Fetch CSV from Google Sheets
     const { csv: text } = await fetchSheetAsCSV(url);
 
-    // Fetch question templates
-    const templates = await getQuestionTemplates(surveyId);
+    // 質問テンプレートを全タイプ分準備
+    let questionsByType: Record<string, QuestionDef[]>;
+    if (survey.survey_type === "jigyotai") {
+      questionsByType = await prepareJigyotaiQuestionsByType(surveyId);
+    } else {
+      questionsByType = await prepareClinicQuestionsByType(surveyId);
+    }
 
+    // ヘッダーから回答者タイプを自動判定
+    const detectionTargets = { ...questionsByType };
+    delete detectionTargets._common; // 判定対象から共通テンプレートを除外
+    const detected = detectRespondentType(text, detectionTargets);
+    const respondentType = detected.type;
+
+    // パース用の質問テンプレートを取得
     let questions: QuestionDef[];
     if (survey.survey_type === "jigyotai") {
-      const filtered = templates.filter((t) => t.respondent_type === respondentType);
-      questions = filtered.map((t) => ({
-        templateId: t.id,
-        num: t.num,
-        staffText: t.staff_text || "",
-        directorText: t.director_text || "",
-        text: t.text || "",
-      }));
-
-      if (questions.length === 0) {
-        const defaults = getJigyotaiQuestions(respondentType as "staff" | "manager" | "corporate");
-        await upsertJigyotaiQuestions(surveyId, respondentType, defaults.map((q) => ({
-          num: q.id,
-          text: q.text,
-          area: q.area,
-          short_label: q.short,
-          core_id: q.coreId,
-          scale_type: q.isCompensation ? "compensation" : "agreement",
-          skip_options: q.skip,
-        })));
-
-        const newTemplates = await getQuestionTemplates(surveyId, respondentType);
-        questions = newTemplates.map((t) => ({
-          templateId: t.id,
-          num: t.num,
-          staffText: t.staff_text || "",
-          directorText: t.director_text || "",
-          text: t.text || "",
-        }));
-      }
+      questions = questionsByType[respondentType] || questionsByType.staff;
     } else {
-      const filtered = templates.filter((t) => t.respondent_type === null);
-      questions = filtered.map((t) => ({
-        templateId: t.id,
-        num: t.num,
-        staffText: t.staff_text || "",
-        directorText: t.director_text || "",
-      }));
-
-      // Auto-register clinic question templates if none exist
-      if (questions.length === 0) {
-        await upsertQuestionTemplates(surveyId, QUESTIONS.map((q) => ({
-          num: q.num,
-          staff_text: q.staffText,
-          director_text: q.directorText,
-          area: q.area,
-          area_label: q.areaLabel,
-          respondent_type: null,
-          text: null,
-          short_label: null,
-          core_id: null,
-          scale_type: "agreement",
-          skip_options: null,
-          question_key: q.questionKey,
-          compare_key: q.compareKey,
-        })));
-
-        const newTemplates = await getQuestionTemplates(surveyId);
-        questions = newTemplates.filter((t) => t.respondent_type === null).map((t) => ({
-          templateId: t.id,
-          num: t.num,
-          staffText: t.staff_text || "",
-          directorText: t.director_text || "",
-        }));
-      }
+      // クリニックの場合は共通テンプレート（staffText+directorText両方含む）を使用
+      questions = questionsByType._common || questionsByType.staff;
     }
 
     const result = parseStaffCSVDynamic(text, surveyId, questions);
@@ -183,6 +222,8 @@ export async function POST(
 
     return NextResponse.json({
       count,
+      detectedType: respondentType,
+      detectedMatchCount: detected.matchCount,
       matchedQuestions: result.matchedQuestions,
       totalQuestions: result.totalQuestions,
       totalRows: result.totalRows,

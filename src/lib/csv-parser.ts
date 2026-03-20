@@ -449,3 +449,47 @@ export function parseDirectorCSVDynamic(
   }
   return parseDynamicCSVInternal(csvText, questions, false);
 }
+
+/**
+ * CSVのヘッダーから回答者タイプを自動判定する
+ * 各タイプの質問テンプレートとヘッダーのマッチ数で最も一致するタイプを返す
+ */
+export function detectRespondentType(
+  csvText: string,
+  questionsByType: Record<string, QuestionDef[]>
+): { type: string; matchCount: number; totalQuestions: number } {
+  const cleaned = cleanCSVText(csvText);
+  const lines = splitCSVLines(cleaned);
+  if (lines.length < 1) {
+    return { type: "staff", matchCount: 0, totalQuestions: 0 };
+  }
+
+  const headers = parseCSVLine(lines[0]);
+
+  let bestType = "staff";
+  let bestCount = 0;
+  let bestTotal = 0;
+
+  for (const [typeName, questions] of Object.entries(questionsByType)) {
+    let matchCount = 0;
+    const matchedIds = new Set<number>();
+
+    for (const h of headers) {
+      const trimmed = h.trim();
+      if (!trimmed) continue;
+      const templateId = matchQuestionColumnDynamic(trimmed, questions);
+      if (templateId !== null && !matchedIds.has(templateId)) {
+        matchedIds.add(templateId);
+        matchCount++;
+      }
+    }
+
+    if (matchCount > bestCount) {
+      bestCount = matchCount;
+      bestType = typeName;
+      bestTotal = questions.length;
+    }
+  }
+
+  return { type: bestType, matchCount: bestCount, totalQuestions: bestTotal };
+}
