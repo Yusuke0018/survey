@@ -107,9 +107,11 @@ export default function AdminPage() {
 
       const data = await res.json();
       if (res.ok) {
-        const matched = data.totalQuestions ? `${data.matchedQuestions}/${data.totalQuestions}問マッチ` : `${data.matchedQuestions}問マッチ`;
-        const typeLabel = { staff: "スタッフ", director: "院長", manager: "責任者", corporate: "経営企画室" }[data.detectedType as string] || data.detectedType;
-        setUploadResult(`${data.count}件の回答をインポートしました\n自動判定: ${typeLabel}回答（${matched}）${data.warnings?.length ? "\n" + data.warnings.join("; ") : ""}`);
+        const typeLabels: Record<string, string> = { staff: "スタッフ", director: "院長", manager: "責任者", corporate: "経営企画室" };
+        const sheetSummaries = (data.sheets as Array<{ sheetName: string; type: string; count: number; matchedQuestions: number; totalQuestions: number }>)
+          ?.map((s) => `  ${typeLabels[s.type] || s.type}: ${s.count}件（${s.matchedQuestions}/${s.totalQuestions}問マッチ）`)
+          .join("\n") || "";
+        setUploadResult(`合計 ${data.count}件の回答をインポートしました\n${sheetSummaries}${data.warnings?.length ? "\n" + data.warnings.join("\n") : ""}`);
         setSelectedSurveyId(uploadingSurveyId);
         loadSurveys();
         setSheetUrl("");

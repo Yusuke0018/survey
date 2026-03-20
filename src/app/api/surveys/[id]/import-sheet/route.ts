@@ -6,7 +6,8 @@ import type { QuestionDef } from "@/lib/csv-parser";
 import { getStorageWriteGuardResponse } from "@/lib/storage-mode";
 import { getJigyotaiQuestions } from "@/lib/jigyotai-questions";
 import { QUESTIONS } from "@/lib/questions";
-import { fetchSheetAsCSV } from "@/lib/google-sheets";
+import { fetchAllSheets } from "@/lib/google-sheets";
+import type { SheetResult } from "@/lib/google-sheets";
 
 function buildAnswerInsert(
   responseId: number,
@@ -20,9 +21,6 @@ function buildAnswerInsert(
   };
 }
 
-/**
- * 事業体サーベイの全タイプの質問テンプレートを準備して返す
- */
 async function prepareJigyotaiQuestionsByType(
   surveyId: number
 ): Promise<Record<string, QuestionDef[]>> {
@@ -33,7 +31,6 @@ async function prepareJigyotaiQuestionsByType(
     let templates = await getQuestionTemplates(surveyId, t);
 
     if (templates.length === 0) {
-      // 未登録の場合はデフォルト質問を自動登録
       const defaults = getJigyotaiQuestions(t);
       await upsertJigyotaiQuestions(surveyId, t, defaults.map((q) => ({
         num: q.id,
@@ -59,9 +56,6 @@ async function prepareJigyotaiQuestionsByType(
   return result;
 }
 
-/**
- * クリニックサーベイの全タイプの質問テンプレートを準備して返す
- */
 async function prepareClinicQuestionsByType(
   surveyId: number
 ): Promise<Record<string, QuestionDef[]>> {
@@ -88,6 +82,13 @@ async function prepareClinicQuestionsByType(
     clinicTemplates = templates.filter((t) => t.respondent_type === null);
   }
 
+  const questionsCommon: QuestionDef[] = clinicTemplates.map((t) => ({
+    templateId: t.id,
+    num: t.num,
+    staffText: t.staff_text || "",
+    directorText: t.director_text || "",
+  }));
+
   const questionsForStaff: QuestionDef[] = clinicTemplates.map((t) => ({
     templateId: t.id,
     num: t.num,
@@ -104,15 +105,73 @@ async function prepareClinicQuestionsByType(
     text: t.director_text || "",
   }));
 
-  // 共通のテンプレート（両方のテキストを含む）もフォールバック用に用意
-  const questionsCommon: QuestionDef[] = clinicTemplates.map((t) => ({
-    templateId: t.id,
-    num: t.num,
-    staffText: t.staff_text || "",
-    directorText: t.director_text || "",
-  }));
-
   return { staff: questionsForStaff, director: questionsForDirector, _common: questionsCommon };
+}
+
+/**
+ * 1シート分のデータをインポートする
+ */
+async function importOneSheet(
+  surveyId: number,
+  surveyType: string,
+  respondentType: string,
+  questions: QuestionDef[],
+  text: string
+): Promise<{ count: number; matchedQuestions: number; totalQuestions: number; totalRows: number; warnings: string[] }> {
+  const result = parseStaffCSVDynamic(text, surveyId, questions);
+
+  if (result.errors.length > 0 && result.responses.length === 0) {
+    return { count: 0, matchedQuestions: result.matchedQuestions, totalQuestions: result.totalQuestions, totalRows: 0, warnings: result.errors };
+  }
+
+  const count = await withTransaction(async (tx) => {
+    // 既存データを削除（置換モード）
+    if (surveyType === "jigyotai") {
+      await tx.execute({
+        sql: "DELETE FROM response_answers WHERE response_id IN (SELECT id FROM responses WHERE survey_id = ? AND type = ? AND entity IS NOT NULL)",
+        args: [surveyId, respondentType],
+      });
+      await tx.execute({
+        sql: "DELETE FROM responses WHERE survey_id = ? AND type = ? AND entity IS NOT NULL",
+        args: [surveyId, respondentType],
+      });
+    } else {
+      await tx.execute({
+        sql: "DELETE FROM response_answers WHERE response_id IN (SELECT id FROM responses WHERE survey_id = ? AND type = ? AND entity IS NULL)",
+        args: [surveyId, respondentType],
+      });
+      await tx.execute({
+        sql: "DELETE FROM responses WHERE survey_id = ? AND type = ? AND entity IS NULL",
+        args: [surveyId, respondentType],
+      });
+    }
+
+    let inserted = 0;
+    for (const resp of result.responses) {
+      const insertRes = await tx.execute({
+        sql: `INSERT INTO responses (survey_id, type, clinic, entity, respondent_name, free_text, session_token,
+                owner_provider, owner_subject, owner_email, owner_name)
+              VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL)`,
+        args: [
+          surveyId,
+          respondentType,
+          surveyType === "clinic" ? resp.clinic : "",
+          surveyType === "jigyotai" ? (resp.entity || resp.clinic || "") : null,
+          respondentType === "staff" ? (resp.respondentName || null) : null,
+          resp.freeText || null,
+        ],
+      });
+      const responseId = Number(insertRes.lastInsertRowid);
+
+      if (resp.answers.length > 0) {
+        await tx.execute(buildAnswerInsert(responseId, resp.answers));
+      }
+      inserted++;
+    }
+    return inserted;
+  });
+
+  return { count, matchedQuestions: result.matchedQuestions, totalQuestions: result.totalQuestions, totalRows: result.totalRows, warnings: result.errors };
 }
 
 export async function POST(
@@ -140,8 +199,8 @@ export async function POST(
       return NextResponse.json({ error: "スプレッドシートのURLが必要です" }, { status: 400 });
     }
 
-    // Fetch CSV from Google Sheets
-    const { csv: text } = await fetchSheetAsCSV(url);
+    // 全シートを取得（シート名からタイプを自動判定）
+    const sheets: SheetResult[] = await fetchAllSheets(url, survey.survey_type as "clinic" | "jigyotai");
 
     // 質問テンプレートを全タイプ分準備
     let questionsByType: Record<string, QuestionDef[]>;
@@ -151,84 +210,61 @@ export async function POST(
       questionsByType = await prepareClinicQuestionsByType(surveyId);
     }
 
-    // ヘッダーから回答者タイプを自動判定
-    const detectionTargets = { ...questionsByType };
-    delete detectionTargets._common; // 判定対象から共通テンプレートを除外
-    const detected = detectRespondentType(text, detectionTargets);
-    const respondentType = detected.type;
+    const importResults: Array<{
+      sheetName: string;
+      type: string;
+      count: number;
+      matchedQuestions: number;
+      totalQuestions: number;
+    }> = [];
+    const allWarnings: string[] = [];
 
-    // パース用の質問テンプレートを取得
-    let questions: QuestionDef[];
-    if (survey.survey_type === "jigyotai") {
-      questions = questionsByType[respondentType] || questionsByType.staff;
-    } else {
-      // クリニックの場合は共通テンプレート（staffText+directorText両方含む）を使用
-      questions = questionsByType._common || questionsByType.staff;
-    }
+    // 各シートを順番にインポート
+    for (const sheet of sheets) {
+      let respondentType = sheet.type;
 
-    const result = parseStaffCSVDynamic(text, surveyId, questions);
+      // シート名でタイプが決まらなかった場合（"auto"）、ヘッダーから自動判定
+      if (respondentType === "auto") {
+        const detectionTargets = { ...questionsByType };
+        delete detectionTargets._common;
+        const detected = detectRespondentType(sheet.csv, detectionTargets);
+        respondentType = detected.type;
+      }
 
-    if (result.errors.length > 0 && result.responses.length === 0) {
-      return NextResponse.json({ error: result.errors.join("; ") }, { status: 400 });
-    }
-
-    // Bulk insert in a single transaction
-    const count = await withTransaction(async (tx) => {
-      // Delete existing response_answers first (FK constraint), then responses
+      // パース用の質問テンプレートを取得
+      let questions: QuestionDef[];
       if (survey.survey_type === "jigyotai") {
-        await tx.execute({
-          sql: "DELETE FROM response_answers WHERE response_id IN (SELECT id FROM responses WHERE survey_id = ? AND type = ? AND entity IS NOT NULL)",
-          args: [surveyId, respondentType],
-        });
-        await tx.execute({
-          sql: "DELETE FROM responses WHERE survey_id = ? AND type = ? AND entity IS NOT NULL",
-          args: [surveyId, respondentType],
-        });
+        questions = questionsByType[respondentType] || questionsByType.staff;
       } else {
-        await tx.execute({
-          sql: "DELETE FROM response_answers WHERE response_id IN (SELECT id FROM responses WHERE survey_id = ? AND type = ? AND entity IS NULL)",
-          args: [surveyId, respondentType],
-        });
-        await tx.execute({
-          sql: "DELETE FROM responses WHERE survey_id = ? AND type = ? AND entity IS NULL",
-          args: [surveyId, respondentType],
+        questions = questionsByType._common || questionsByType.staff;
+      }
+
+      const result = await importOneSheet(surveyId, survey.survey_type, respondentType, questions, sheet.csv);
+
+      const typeLabel = { staff: "スタッフ", director: "院長", manager: "責任者", corporate: "経営企画室" }[respondentType] || respondentType;
+
+      if (result.count > 0) {
+        importResults.push({
+          sheetName: sheet.sheetName,
+          type: respondentType,
+          count: result.count,
+          matchedQuestions: result.matchedQuestions,
+          totalQuestions: result.totalQuestions,
         });
       }
 
-      let inserted = 0;
-      for (const resp of result.responses) {
-        const insertRes = await tx.execute({
-          sql: `INSERT INTO responses (survey_id, type, clinic, entity, respondent_name, free_text, session_token,
-                  owner_provider, owner_subject, owner_email, owner_name)
-                VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, NULL, NULL, NULL)`,
-          args: [
-            surveyId,
-            respondentType,
-            survey.survey_type === "clinic" ? resp.clinic : "",
-            survey.survey_type === "jigyotai" ? (resp.entity || resp.clinic || "") : null,
-            respondentType === "staff" ? (resp.respondentName || null) : null,
-            resp.freeText || null,
-          ],
-        });
-        const responseId = Number(insertRes.lastInsertRowid);
-
-        if (resp.answers.length > 0) {
-          await tx.execute(buildAnswerInsert(responseId, resp.answers));
-        }
-        inserted++;
+      if (result.warnings.length > 0) {
+        allWarnings.push(`[${typeLabel}] ${result.warnings.join("; ")}`);
       }
-      return inserted;
-    });
+    }
+
+    const totalCount = importResults.reduce((sum, r) => sum + r.count, 0);
 
     return NextResponse.json({
-      count,
-      detectedType: respondentType,
-      detectedMatchCount: detected.matchCount,
-      matchedQuestions: result.matchedQuestions,
-      totalQuestions: result.totalQuestions,
-      totalRows: result.totalRows,
+      count: totalCount,
+      sheets: importResults,
       mode: "replace",
-      warnings: result.errors,
+      warnings: allWarnings,
     });
   } catch (err) {
     console.error("Sheet import error:", err);
